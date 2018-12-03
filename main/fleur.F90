@@ -233,11 +233,20 @@ CONTAINS
 !!$                END IF
        !---< gwf
 
+       INQUIRE(file="vtotal",exist=l_cont)
+       IF (l_cont) THEN
+          CALL readDensity(stars,vacuum,atoms,cell,sphhar,input,sym,oneD,archiveType,CDN_INPUT_DEN_const,&
+               0,results%ef,l_qfix,vtot,"vtotal")
+       ELSE
        CALL timestart("generation of potential")
        CALL vgen(hybrid,field,input,xcpot,DIMENSION,atoms,sphhar,stars,vacuum,sym,&
                  obsolete,cell,oneD,sliceplot,mpi,results,noco,inDen,vTot,vx,vCoul)
        CALL timestop("generation of potential")
-
+        CALL writeDensity(stars,vacuum,atoms,cell,sphhar,input,sym,oneD,archiveType,CDN_INPUT_DEN_const,&
+                         0,-1.0,results%ef,.FALSE.,vtot,"vtotal")
+        stop "Potential written"
+     END IF
+  
 #ifdef CPP_MPI
        CALL MPI_BARRIER(mpi%mpi_comm,ierr)
 #endif

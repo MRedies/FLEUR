@@ -71,17 +71,19 @@ CONTAINS
     ENDDO
 
     
-    CALL timestart("Interstitial part")
+!    CALL timestart("Interstitial part")
     !Generate interstitial part of Hamiltonian
-    CALL hs_int(input,noco,stars,lapw,mpi,cell,isp,v%pw_w,smat,hmat)
-    CALL timestop("Interstitial part")
+!    CALL hs_int(input,noco,stars,lapw,mpi,cell,isp,v%pw_w,smat,hmat)
+!    CALL timestop("Interstitial part")
     CALL timestart("MT part")
       !MT-part of Hamiltonian. In case of noco, we need an loop over the local spin of the atoms
     DO ispin=MERGE(1,isp,noco%l_noco),MERGE(2,isp,noco%l_noco)
        CALL hsmt(atoms,sym,enpara,ispin,input,mpi,noco,cell,lapw,ud,td,smat,hmat)
     ENDDO
     CALL timestop("MT part")
-   
+ 
+    STOP "hsmt_spherical only"
+  
     !Vacuum contributions
     IF (input%film) THEN
        CALL timestart("Vacuum part")

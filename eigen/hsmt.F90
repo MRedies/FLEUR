@@ -73,10 +73,10 @@ CONTAINS
              !that is needed and allocated
              CALL hsmt_sph(n,atoms,mpi,ispin,input,noco,1,1,chi_one,lapw,enpara%el0,&
                            td%e_shift(n,ispin),usdus,fj(:,0:,ispin,:),gj(:,0:,ispin,:),smat(1,1),hmat(1,1))
-             CALL hsmt_nonsph(n,mpi,sym,atoms,ispin,1,1,chi_one,noco,cell,lapw,td,&
-                              fj(:,0:,ispin,:),gj(:,0:,ispin,:),hmat(1,1))
-             CALL hsmt_lo(input,atoms,sym,cell,mpi,noco,lapw,usdus,td,fj(:,0:,ispin,:),gj(:,0:,ispin,:),&
-                          n,chi_one,ispin,iintsp,jintsp,hmat(1,1),smat(1,1))
+!             CALL hsmt_nonsph(n,mpi,sym,atoms,ispin,1,1,chi_one,noco,cell,lapw,td,&
+!                              fj(:,0:,ispin,:),gj(:,0:,ispin,:),hmat(1,1))
+!             CALL hsmt_lo(input,atoms,sym,cell,mpi,noco,lapw,usdus,td,fj(:,0:,ispin,:),gj(:,0:,ispin,:),&
+!                          n,chi_one,ispin,iintsp,jintsp,hmat(1,1),smat(1,1))
           ELSEIF(noco%l_noco.AND..NOT.noco%l_ss) THEN
              !The NOCO but non-spinspiral setup follows:
              !The Matrix-elements are first calculated in the local frame of the atom and
