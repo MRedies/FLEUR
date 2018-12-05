@@ -2,71 +2,73 @@ module m_LegendrePoly
    implicit none
 
 contains
-   pure function LegendrePoly(l,x) result(p)
+   pure recursive function LegendrePoly(l,x) result(p)
       implicit none
       
       integer, intent(in) :: l
       real, intent(in)    :: x(:)
       real                :: p(size(x))
+      real, parameter     :: one_128 = 1.0/128.0, one_256 = 1.0/256.0
 
       select case(l)
          case(0)
-            p = 1.0
+            p =             1.0
          case(1)
-            p = x
+            p =             x
          case(2)
-            p = x**2  - 1./3.
+            p = 0.5     * ( 3   * x**2  - 1)
          case(3)
-            p = x**3  - 3./5.   * x
+            p = 0.5     * ( 5   * x**3  -  3  * x)
          case(4)
-            p = x**4  - 6./7.   * x**2 + 3./35.
+            p = 0.125   * (35   * x**4  - 30  * x**2   + 3)
          case(5)
-            p = x**5  - 10./9.  * x**3 + 5./21.    * x
+            p = 0.125   * (63   * x**5  - 70  * x**3   + 15  * x)
          case(6) 
-            p = x**6  - 15./11. * x**4 + 5./11.    * x**2  -  5./231
+            p = 0.0625  * (231  * x**6  -315  * x**4   + 105 * x      - 5)
          case(7)
-            p = x**7  - 21./13. * x**5 + 105./143. * x**3  -  35./429. * x
+            p = 0.0625  * (429  * x**7  -693  * x**5   + 315 * x**3   - 35    * x)
          case(8) 
-            p = x**8  - 28./15. * x**6 + 14./13.   * x**4  -  28./143. * x**2  + 7./1287.
+            p = one_128 * (6435 * x**8  -12012 *x**6   + 6930* x**4   - 1260  * x**2   + 35)
          case(9)
-            p = x**9  - 36./17. * x**7 + 126./85.  * x**5  -  84./221. * x**3  + 17./656.
+            p = one_128 * (12155* x**9  -25740 *x**7   +18018* x**5   - 4620  * x**3   + 315 * x)
          case(10)
-            p = x**10 - 45./19. * x**8 + 630./323. * x**6  - 210./323. * x**4 + 106./1413. * x**2 - 1./733.
+            p = one_256 * (46189* x**10 -109395*x**8   +90090* x**6   -30030  * x**4   +3465 * x**2 - 63)
          case default
             p = ( (2*l-1)*x*LegendrePoly(l-1,x)  - (l-1)*LegendrePoly(l-2,x) ) / l
       end select
    end function LegendrePoly
    
-   pure function LegendrePoly_scalar(l,x) result(p)
+   pure recursive function LegendrePoly_scalar(l,x) result(p)
       implicit none
       
       integer, intent(in) :: l
       real, intent(in)    :: x
       real                :: p
+      real, parameter     :: one_128 = 1.0/128.0, one_256 = 1.0/256.0
 
       select case(l)
          case(0)
-            p = 1.0
+            p =             1.0
          case(1)
-            p = x
+            p =             x
          case(2)
-            p = x**2  - 1./3.
+            p = 0.5     * ( 3   * x**2  - 1)
          case(3)
-            p = x**3  - 3./5.   * x
+            p = 0.5     * ( 5   * x**3  -  3  * x)
          case(4)
-            p = x**4  - 6./7.   * x**2 + 3./35.
+            p = 0.125   * (35   * x**4  - 30  * x**2   + 3)
          case(5)
-            p = x**5  - 10./9.  * x**3 + 5./21.    * x
+            p = 0.125   * (63   * x**5  - 70  * x**3   + 15  * x)
          case(6) 
-            p = x**6  - 15./11. * x**4 + 5./11.    * x**2  -  5./231
+            p = 0.0625  * (231  * x**6  -315  * x**4   + 105 * x      - 5)
          case(7)
-            p = x**7  - 21./13. * x**5 + 105./143. * x**3  -  35./429. * x
+            p = 0.0625  * (429  * x**7  -693  * x**5   + 315 * x**3   - 35    * x)
          case(8) 
-            p = x**8  - 28./15. * x**6 + 14./13.   * x**4  -  28./143. * x**2  + 7./1287.
+            p = one_128 * (6435 * x**8  -12012 *x**6   + 6930* x**4   - 1260  * x**2   + 35)
          case(9)
-            p = x**9  - 36./17. * x**7 + 126./85.  * x**5  -  84./221. * x**3  + 17./656.
+            p = one_128 * (12155* x**9  -25740 *x**7   +18018* x**5   - 4620  * x**3   + 315 * x)
          case(10)
-            p = x**10 - 45./19. * x**8 + 630./323. * x**6  - 210./323. * x**4 + 106./1413. * x**2 - 1./733.
+            p = one_256 * (46189* x**10 -109395*x**8   +90090* x**6   -30030  * x**4   +3465 * x**2 - 63)
          case default
             p = ( (2*l-1)*x*LegendrePoly_scalar(l-1,x)  - (l-1)*LegendrePoly_scalar(l-2,x) ) / l
       end select
