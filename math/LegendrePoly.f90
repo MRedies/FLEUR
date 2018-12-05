@@ -32,9 +32,6 @@ contains
             p = x**9  - 36./17. * x**7 + 126./85.  * x**5  -  84./221. * x**3  + 17./656.
          case(10)
             p = x**10 - 45./19. * x**8 + 630./323. * x**6  - 210./323. * x**4 + 106./1413. * x**2 - 1./733.
-         case default
-            write (*,*) "we don't support l this high (yet)"
-            stop 7
       end select
    end function LegendrePoly
    
@@ -68,9 +65,6 @@ contains
             p = x**9  - 36./17. * x**7 + 126./85.  * x**5  -  84./221. * x**3  + 17./656.
          case(10)
             p = x**10 - 45./19. * x**8 + 630./323. * x**6  - 210./323. * x**4 + 106./1413. * x**2 - 1./733.
-         case default
-            write (*,*) "we don't support l this high (yet)"
-            stop 7
       end select
    end function LegendrePoly_scalar
 
