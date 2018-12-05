@@ -316,6 +316,7 @@ END SUBROUTINE hsmt_sph_gpu
   SUBROUTINE hsmt_sph_cpu(n,atoms,mpi,isp,input,noco,iintsp,jintsp,chi,lapw,el,e_shift,usdus,fj,gj,smat,hmat)
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
+    USE m_LegendrePoly
     IMPLICIT NONE
     TYPE(t_input),INTENT(IN)      :: input
     TYPE(t_mpi),INTENT(IN)        :: mpi
@@ -336,7 +337,7 @@ END SUBROUTINE hsmt_sph_gpu
     !     ..
     !     .. Local Scalars ..
     REAL tnn(3), elall,fct,fct2,fjkiln,gjkiln,ddnln,ski(3)
-    REAL apw_lo1,apw_lo2,apw1,w1
+    REAL apw_lo1,apw_lo2,apw1,w1,plegend
     COMPLEX capw1
     INTEGER kii,ki,kj,l,nn
     INTEGER kj_BlockSize, kj_BlockNum, kjb, kj_start, kj_end
@@ -385,7 +386,7 @@ END SUBROUTINE hsmt_sph_gpu
 
           !--->       legendre polynomials
           DO kj = kj_start,kj_end
-             gdot(kj,1) = DOT_PRODUCT(lapw%gk(:,kj,iintsp),lapw%gk(:,ki,jintsp))
+             gdot(kj) = DOT_PRODUCT(lapw%gk(:,kj,iintsp),lapw%gk(:,ki,jintsp))
           END DO
           !--->             set up phase factors
           cph(kj_start:kj_end) = 0.0
@@ -419,7 +420,7 @@ END SUBROUTINE hsmt_sph_gpu
              IF (l<=atoms%lnonsph(n)) elall=elall-e_shift!(isp)
              IF (smat%l_real) THEN
                 DO kj = kj_start,kj_end
-                   plegend = LegendrePoly(l,gdot(kj))
+                   plegend = LegendrePoly_scalar(l,gdot(kj))
                    fct  = plegend*fl2p1(l)*&
                         ( fjkiln*fj(kj,l,iintsp) + gjkiln*gj(kj,l,iintsp)*ddnln )
                    fct2 = plegend*fl2p1bt(l) * ( fjkiln*gj(kj,l,iintsp) + gjkiln*fj(kj,l,iintsp) )
@@ -435,7 +436,7 @@ END SUBROUTINE hsmt_sph_gpu
                    !-APW
                 ENDDO
              ELSE
-                plegend = LegendrePoly(l,gdot(kj))
+                plegend = LegendrePoly_scalar(l,gdot(kj))
                 DO kj = kj_start,kj_end
                    fct  = plegend*fl2p1(l)*&
                       ( fjkiln*fj(kj,l,iintsp) + gjkiln*gj(kj,l,iintsp)*ddnln )
