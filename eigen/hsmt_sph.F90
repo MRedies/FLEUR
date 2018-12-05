@@ -338,10 +338,9 @@ CONTAINS
     !     .. Local Scalars ..
     REAL tnn(3), elall,fct,fct2,fjkiln,gjkiln,ddnln,ski(3)
     REAL apw_lo1,apw_lo2,apw1,w1
-
     COMPLEX capw1
-    INTEGER kii,ki,kj,l,nn,kj_end
-
+    INTEGER kii,ki,kj,l,nn
+    INTEGER kj_BlockSize, kj_BlockNum, kjb, kj_start, kj_end
     !     ..
     !     .. Local Arrays ..
     REAL fleg1(0:atoms%lmaxd),fleg2(0:atoms%lmaxd),fl2p1(0:atoms%lmaxd)     
@@ -352,6 +351,8 @@ CONTAINS
     COMPLEX, ALLOCATABLE :: cph(:)
     LOGICAL apw(0:atoms%lmaxd)
 
+    kj_BlockSize = 1000
+
     CALL timestart("spherical setup")
 
     DO l = 0,atoms%lmaxd
@@ -361,12 +362,13 @@ CONTAINS
        fl2p1bt(l) = fl2p1(l)*0.5
     END DO
     !$OMP PARALLEL DEFAULT(NONE)&
-    !$OMP SHARED(lapw,atoms,noco,mpi,input,usdus,smat,hmat)&
+    !$OMP SHARED(kj_BlockSize,lapw,atoms,noco,mpi,input,usdus,smat,hmat)&
     !$OMP SHARED(jintsp,iintsp,n,fleg1,fleg2,fj,gj,isp,fl2p1,el,e_shift,fl2p1bt,chi)&
-    !$OMP PRIVATE(kii,ki,ski,kj,plegend,l,kj_end,qssbti,qssbtj,fct2)&
+    !$OMP PRIVATE(kii,ki,ski,kj,plegend,l,qssbti,qssbtj,fct2)&
     !$OMP PRIVATE(cph,nn,tnn,fjkiln,gjkiln)&
     !$OMP PRIVATE(w1,apw_lo1,apw_lo2,ddnln,elall,fct,apw1)&
-    !$OMP PRIVATE(capw1,VecHelpS,VecHelpH) 
+    !$OMP PRIVATE(capw1,VecHelpS,VecHelpH)&
+    !$OMP PRIVATE(kj_start,kj_end,kj_BlockNum, kjb) 
     ALLOCATE(cph(MAXVAL(lapw%nv)))
     ALLOCATE(plegend(MAXVAL(lapw%nv),0:atoms%lmaxd))
     ALLOCATE(VecHelpS(MAXVAL(lapw%nv)),VecHelpH(MAXVAL(lapw%nv)))
@@ -378,84 +380,91 @@ CONTAINS
     DO  ki =  mpi%n_rank+1, lapw%nv(jintsp), mpi%n_size
        kii=(ki-1)/mpi%n_size+1
        ski = lapw%gvec(:,ki,jintsp) + qssbti
-       !--->       legendre polynomials
-       DO kj = 1,ki
-          plegend(kj,1) = DOT_PRODUCT(lapw%gk(:,kj,iintsp),lapw%gk(:,ki,jintsp))
-       END DO
-       DO l = 1,atoms%lmax(n) - 1
-          plegend(:ki,l+1) = fleg1(l)*plegend(:ki,1)*plegend(:ki,l) - fleg2(l)*plegend(:ki,l-1)
-       END DO
-       !--->             set up phase factors
-       cph = 0.0
-       DO nn = SUM(atoms%neq(:n-1))+1,SUM(atoms%neq(:n))
-          tnn = tpi_const*atoms%taual(:,nn)
-          DO kj = 1,ki
-             cph(kj) = cph(kj) +&
-                  CMPLX(COS(DOT_PRODUCT(ski-lapw%gvec(:,kj,iintsp)-qssbtj,tnn)),&
-                  SIN(DOT_PRODUCT(lapw%gvec(:,kj,iintsp)+qssbtj-ski,tnn)))
-            ! IF (iintsp.NE.jintsp) cph(kj)=CONJG(cph(kj))
+       kj_BlockNum = ki/kj_BlockSize + 1
+       DO kjb = 1, kj_BlockNum 
+          kj_start = (kjb-1) * kj_BlockSize + 1
+          kj_end = MIN(ki,kjb * kj_BlockSize,lapw%nv(iintsp))
+
+          !--->       legendre polynomials
+          DO kj = kj_start,kj_end
+             plegend(kj,1) = DOT_PRODUCT(lapw%gk(:,kj,iintsp),lapw%gk(:,ki,jintsp))
           END DO
-       END DO
-
-       !--->          update overlap and l-diagonal hamiltonian matrix
-       kj_end = MIN(ki,lapw%nv(iintsp)) 
-       VecHelpS = 0.d0
-       VecHelpH = 0.d0
-       DO  l = 0,atoms%lmax(n)
-          fjkiln = fj(ki,l,jintsp)
-          gjkiln = gj(ki,l,jintsp)
-          !
-          IF (input%l_useapw) THEN
-             w1 = 0.5 * ( usdus%uds(l,n,isp)*usdus%dus(l,n,isp) + &
-                  usdus%us(l,n,isp)*usdus%duds(l,n,isp) )
-             apw_lo1 = fl2p1(l) * 0.5 * atoms%rmt(n)**2 * ( gjkiln * w1 +&
-                  fjkiln * usdus%us(l,n,isp) * usdus%dus(l,n,isp) )
-             apw_lo2 = fl2p1(l) * 0.5 * atoms%rmt(n)**2 * ( fjkiln * w1 +&
-                  gjkiln * usdus%uds(l,n,isp) * usdus%duds(l,n,isp) )
-             !
-          ENDIF
-          ddnln =  usdus%ddn(l,n,isp)
-          elall = el(l,n,isp)
-          IF (l<=atoms%lnonsph(n)) elall=elall-e_shift!(isp)
-          IF (smat%l_real) THEN
-             DO kj = 1,ki
-                fct  = plegend(kj,l)*fl2p1(l)*&
-                     ( fjkiln*fj(kj,l,iintsp) + gjkiln*gj(kj,l,iintsp)*ddnln )
-                fct2 = plegend(kj,l)*fl2p1bt(l) * ( fjkiln*gj(kj,l,iintsp) + gjkiln*fj(kj,l,iintsp) )
-
-                smat%data_r(kj,kii)=smat%data_r(kj,kii)+REAL(cph(kj))*fct
-                hmat%data_r(kj,kii)=hmat%data_r(kj,kii) + REAL(cph(kj)) * ( fct * elall + fct2)
-                !+APW
-                IF (input%l_useapw) THEN
-                   apw1 = REAL(cph(kj)) * plegend(kj,l)  * &
-                        ( apw_lo1 * fj(kj,l,iintsp) + apw_lo2 * gj(kj,l,iintsp) )
-                   hmat%data_r(kj,kii)=hmat%data_r(kj,kii) + apw1
-                ENDIF
-                !-APW
-             ENDDO
-          ELSE
-             DO kj = 1,kj_end
-                fct  = plegend(kj,l)*fl2p1(l)*&
-                     ( fjkiln*fj(kj,l,iintsp) + gjkiln*gj(kj,l,iintsp)*ddnln )
-                fct2 = plegend(kj,l)*fl2p1bt(l) * ( fjkiln*gj(kj,l,iintsp) + gjkiln*fj(kj,l,iintsp) )
- 
-                VecHelpS(kj) = VecHelpS(kj) + fct
-                VecHelpH(kj) = VecHelpH(kj) + fct*elall + fct2 
-
-                IF (input%l_useapw) THEN
-                   capw1 = cph(kj)*plegend(kj,l)&
-                        * ( apw_lo1 * fj(kj,l,iintsp) + apw_lo2 * gj(kj,l,iintsp) )
-                   hmat%data_c(kj,kii)=hmat%data_c(kj,kii) + capw1
-                ENDIF
+          DO l = 1,atoms%lmax(n) - 1
+             plegend(kj_start:kj_end,l+1) = fleg1(l)*plegend(kj_start:kj_end,1)*plegend(kj_start:kj_end,l) -&
+                                            fleg2(l)*plegend(kj_start:kj_end,l-1)
+          END DO
+          !--->             set up phase factors
+          cph(kj_start:kj_end) = 0.0
+          DO nn = SUM(atoms%neq(:n-1))+1,SUM(atoms%neq(:n))
+             tnn = tpi_const*atoms%taual(:,nn)
+             DO kj = kj_start,kj_end
+                cph(kj) = cph(kj) +&
+                   CMPLX(COS(DOT_PRODUCT(ski-lapw%gvec(:,kj,iintsp)-qssbtj,tnn)),&
+                   SIN(DOT_PRODUCT(lapw%gvec(:,kj,iintsp)+qssbtj-ski,tnn)))
+                ! IF (iintsp.NE.jintsp) cph(kj)=CONJG(cph(kj))
              END DO
+          END DO
 
+          !--->          update overlap and l-diagonal hamiltonian matrix
+          VecHelpS = 0.d0
+          VecHelpH = 0.d0
+          DO  l = 0,atoms%lmax(n)
+             fjkiln = fj(ki,l,jintsp)
+             gjkiln = gj(ki,l,jintsp)
+          
+             IF (input%l_useapw) THEN
+                w1 = 0.5 * ( usdus%uds(l,n,isp)*usdus%dus(l,n,isp) + &
+                   usdus%us(l,n,isp)*usdus%duds(l,n,isp) )
+                apw_lo1 = fl2p1(l) * 0.5 * atoms%rmt(n)**2 * ( gjkiln * w1 +&
+                   fjkiln * usdus%us(l,n,isp) * usdus%dus(l,n,isp) )
+                apw_lo2 = fl2p1(l) * 0.5 * atoms%rmt(n)**2 * ( fjkiln * w1 +&
+                   gjkiln * usdus%uds(l,n,isp) * usdus%duds(l,n,isp) )
+             ENDIF
+             ddnln =  usdus%ddn(l,n,isp)
+             elall = el(l,n,isp)
+             IF (l<=atoms%lnonsph(n)) elall=elall-e_shift!(isp)
+             IF (smat%l_real) THEN
+                DO kj = kj_start,kj_end
+                   fct  = plegend(kj,l)*fl2p1(l)*&
+                        ( fjkiln*fj(kj,l,iintsp) + gjkiln*gj(kj,l,iintsp)*ddnln )
+                   fct2 = plegend(kj,l)*fl2p1bt(l) * ( fjkiln*gj(kj,l,iintsp) + gjkiln*fj(kj,l,iintsp) )
+
+                   smat%data_r(kj,kii)=smat%data_r(kj,kii)+REAL(cph(kj))*fct
+                   hmat%data_r(kj,kii)=hmat%data_r(kj,kii) + REAL(cph(kj)) * ( fct * elall + fct2)
+                   !+APW
+                   IF (input%l_useapw) THEN
+                      apw1 = REAL(cph(kj)) * plegend(kj,l)  * &
+                         ( apw_lo1 * fj(kj,l,iintsp) + apw_lo2 * gj(kj,l,iintsp) )
+                      hmat%data_r(kj,kii)=hmat%data_r(kj,kii) + apw1
+                   ENDIF
+                   !-APW
+                ENDDO
+             ELSE
+                DO kj = kj_start,kj_end
+                   fct  = plegend(kj,l)*fl2p1(l)*&
+                      ( fjkiln*fj(kj,l,iintsp) + gjkiln*gj(kj,l,iintsp)*ddnln )
+                   fct2 = plegend(kj,l)*fl2p1bt(l) * ( fjkiln*gj(kj,l,iintsp) + gjkiln*fj(kj,l,iintsp) )
+ 
+                   VecHelpS(kj) = VecHelpS(kj) + fct
+                   VecHelpH(kj) = VecHelpH(kj) + fct*elall + fct2 
+
+                   IF (input%l_useapw) THEN
+                      capw1 = cph(kj)*plegend(kj,l) *&
+                          ( apw_lo1 * fj(kj,l,iintsp) + apw_lo2 * gj(kj,l,iintsp) )
+                      hmat%data_c(kj,kii)=hmat%data_c(kj,kii) + capw1
+                   ENDIF
+                END DO
+
+             ENDIF
+          !--->          end loop over l
+          ENDDO
+          IF (.not.smat%l_real) THEN
+              smat%data_c(kj_start:kj_end,kii)=smat%data_c(kj_start:kj_end,kii) + chi*cph(kj_start:kj_end) * VecHelpS(kj_start:kj_end)
+              hmat%data_c(kj_start:kj_end,kii)=hmat%data_c(kj_start:kj_end,kii) + chi*cph(kj_start:kj_end) * VecHelpH(kj_start:kj_end)
           ENDIF
-       !--->          end loop over l
-       ENDDO
-       IF (.not.smat%l_real) THEN
-           smat%data_c(:kj_end,kii)=smat%data_c(:kj_end,kii) + chi*cph(:kj_end) * VecHelpS(:kj_end)
-           hmat%data_c(:kj_end,kii)=hmat%data_c(:kj_end,kii) + chi*cph(:kj_end) * VecHelpH(:kj_end)
-       ENDIF
+
+       !--->    end loop over kj-blocks 
+       ENDDO 
     !--->    end loop over ki
     ENDDO
     !$OMP END DO
