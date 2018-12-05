@@ -376,7 +376,7 @@ END SUBROUTINE hsmt_sph_gpu
     !$OMP PRIVATE(capw1,VecHelpS,VecHelpH)&
     !$OMP PRIVATE(kj_start,kj_end,kj_BlockNum, kjb) 
     ALLOCATE(cph(MAXVAL(lapw%nv)))
-    ALLOCATE(gdot(0:atoms%lmaxd))
+    ALLOCATE(gdot(MAXVAL(lapw%nv)))
     ALLOCATE(VecHelpS(MAXVAL(lapw%nv)),VecHelpH(MAXVAL(lapw%nv)))
     gdot=0.0
     qssbti=MERGE(- noco%qss/2,+ noco%qss/2,jintsp.EQ.1)
