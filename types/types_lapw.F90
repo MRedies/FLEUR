@@ -371,10 +371,12 @@ CONTAINS
 
     INTEGER:: k
     REAL:: th
+    !$OMP PARALLEL DO PRIVATE(k,th) SHARED(tau,cph,lapw,iintsp,qss) DEFAULT(none)
     DO k = 1,lapw%nv(iintsp)
        th= DOT_PRODUCT(lapw%gvec(:,k,iintsp)+(iintsp-1.5)*qss,tau)
        cph(k) = CMPLX(COS(tpi_const*th),-SIN(tpi_const*th))
     END DO
+    !$OMP END PARALLEL DO
   END SUBROUTINE lapw_phase_factors
 
   
@@ -426,6 +428,7 @@ CONTAINS
        ENDIF
 
        !--->    set up phase factors
+       !$OMP PARALLEL DO PRIVATE(k,th) SHARED(rph,cph)
        DO k = 1,lapw%nv(iintsp)
           th= tpi_const*DOT_PRODUCT((/lapw%k1(k,iintsp),lapw%k2(k,iintsp),lapw%k3(k,iintsp)/)+qssbti,atoms%taual(:,na))
           rph(k,iintsp) = COS(th)

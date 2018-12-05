@@ -348,21 +348,27 @@ END SUBROUTINE hsmt_sph_gpu
     REAL qssbti(3),qssbtj(3)
     REAL, ALLOCATABLE :: gdot(:)
     REAL, ALLOCATABLE :: VecHelpS(:),VecHelpH(:)
-    COMPLEX, ALLOCATABLE :: cph(:)
-    LOGICAL apw(0:atoms%lmaxd)
+
+   COMPLEX, ALLOCATABLE :: cph(:),cp_h(:,:)
+   LOGICAL apw(0:atoms%lmaxd)
+
+   CALL timestart("spherical setup")
+
+   DO l = 0,atoms%lmaxd
+      fleg1(l) = REAL(l+l+1)/REAL(l+1)
+      fleg2(l) = REAL(l)/REAL(l+1)
+      fl2p1(l) = REAL(l+l+1)/fpi_const
+      fl2p1bt(l) = fl2p1(l)*0.5
+   END DO
+   ALLOCATE(cp_h(MAXVAL(lapw%nv),SUM(atoms%neq(:n-1))+1:SUM(atoms%neq(:n))))
+   DO nn = SUM(atoms%neq(:n-1))+1,SUM(atoms%neq(:n))
+      CALL lapw%phase_factors(1,atoms%taual(:,nn),noco%qss,cp_h(:,nn))
+   ENDDO
 
     kj_BlockSize = 1000
 
-    CALL timestart("spherical setup")
-
-    DO l = 0,atoms%lmaxd
-       fleg1(l) = REAL(l+l+1)/REAL(l+1)
-       fleg2(l) = REAL(l)/REAL(l+1)
-       fl2p1(l) = REAL(l+l+1)/fpi_const
-       fl2p1bt(l) = fl2p1(l)*0.5
-    END DO
     !$OMP PARALLEL DEFAULT(NONE)&
-    !$OMP SHARED(kj_BlockSize,lapw,atoms,noco,mpi,input,usdus,smat,hmat)&
+    !$OMP SHARED(cp_h,kj_BlockSize,lapw,atoms,noco,mpi,input,usdus,smat,hmat)&
     !$OMP SHARED(jintsp,iintsp,n,fleg1,fleg2,fj,gj,isp,fl2p1,el,e_shift,fl2p1bt,chi)&
     !$OMP PRIVATE(kii,ki,ski,kj,gdot,l,qssbti,qssbtj,fct2,plegend)&
     !$OMP PRIVATE(cph,nn,tnn,fjkiln,gjkiln)&
@@ -393,9 +399,9 @@ END SUBROUTINE hsmt_sph_gpu
           DO nn = SUM(atoms%neq(:n-1))+1,SUM(atoms%neq(:n))
              tnn = tpi_const*atoms%taual(:,nn)
              DO kj = kj_start,kj_end
-                cph(kj) = cph(kj) +&
-                   CMPLX(COS(DOT_PRODUCT(ski-lapw%gvec(:,kj,iintsp)-qssbtj,tnn)),&
-                   SIN(DOT_PRODUCT(lapw%gvec(:,kj,iintsp)+qssbtj-ski,tnn)))
+                cph(kj) = cph(kj) +cp_h(ki,nn)/cp_h(kj,nn)
+!                   CMPLX(COS(DOT_PRODUCT(ski-lapw%gvec(:,kj,iintsp)-qssbtj,tnn)),&
+!                   SIN(DOT_PRODUCT(lapw%gvec(:,kj,iintsp)+qssbtj-ski,tnn)))
                 ! IF (iintsp.NE.jintsp) cph(kj)=CONJG(cph(kj))
              END DO
           END DO
