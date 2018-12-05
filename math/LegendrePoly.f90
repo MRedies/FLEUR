@@ -2,7 +2,7 @@ module m_LegendrePoly
    implicit none
 
 contains
-   real function LegendrePoly(l,x) result(p)
+   pure function LegendrePoly(l,x) result(p)
       implicit none
       
       integer, intent(in) :: l
@@ -38,7 +38,7 @@ contains
       end select
    end function LegendrePoly
    
-   real function LegendrePoly_scalar(l,x) result(p)
+   pure function LegendrePoly_scalar(l,x) result(p)
       implicit none
       
       integer, intent(in) :: l
