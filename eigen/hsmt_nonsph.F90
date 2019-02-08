@@ -146,7 +146,6 @@ CONTAINS
 #endif
 
   SUBROUTINE priv_noMPI_cpu(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
-!Calculate overlap matrix
     USE m_hsmt_ab
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
@@ -170,11 +169,12 @@ CONTAINS
     CLASS(t_mat),INTENT(INOUT)::hmat
 
     
-    INTEGER:: nn,na,ab_size,l,ll,m
-    COMPLEX,ALLOCATABLE:: ab(:,:),ab1(:,:),ab2(:,:)
+    INTEGER:: nn,na,ab_size,l,ll,m,i
+    COMPLEX,ALLOCATABLE:: ab(:,:,:),ab1(:,:),ab2(:,:)
     real :: rchi
 
-    ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lmaxd*(atoms%lmaxd+2)+2),ab1(lapw%nv(jintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
+    ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lmaxd*(atoms%lmaxd+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
+    ALLOCATE(ab1(lapw%nv(jintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
 
     IF (iintsp.NE.jintsp) ALLOCATE(ab2(lapw%nv(iintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
 
@@ -189,11 +189,18 @@ CONTAINS
     DO nn = 1,atoms%neq(n)
        na = SUM(atoms%neq(:n-1))+nn
        IF ((atoms%invsat(na)==0) .OR. (atoms%invsat(na)==1)) THEN
+
+          CALL timestart("hsmt_abNSPH")
+          DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp) 
+             ! iintsp or/and jintsp .ne. 1 on l_ss case
+             CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.)  
+          ENDDO
+          CALL timestop("hsmt_abNSPH")
+
           rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
 
-          CALL hsmt_ab(sym,atoms,noco,isp,jintsp,n,na,cell,lapw,fj,gj,ab,ab_size,.TRUE.)
           !Calculate Hamiltonian
-          CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab,SIZE(ab,1),&
+          CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,jintsp),SIZE(ab,1),&
                      td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
           !ab1=MATMUL(ab(:lapw%nv(iintsp),:ab_size),td%h_loc(:ab_size,:ab_size,n,isp))
           IF (iintsp==jintsp) THEN
@@ -205,9 +212,7 @@ CONTAINS
                      ab1,SIZE(ab1,1),CMPLX(1.0,0.0),hmat%data_c,SIZE(hmat%data_c,1))
              ENDIF
           ELSE  !here the l_ss off-diagonal part starts
-             !Second set of ab is needed
-             CALL hsmt_ab(sym,atoms,noco,isp,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,.TRUE.)
-             CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab,SIZE(ab,1),&
+             CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,iintsp),SIZE(ab,1),&
                         td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab2,SIZE(ab2,1))
              !Multiply for Hamiltonian
              CALL zgemm("N","T",lapw%nv(iintsp),lapw%nv(jintsp),ab_size,chi,conjg(ab2),SIZE(ab2,1),&
@@ -224,7 +229,6 @@ CONTAINS
 
 
   SUBROUTINE priv_MPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
-!Calculate overlap matrix
     USE m_hsmt_ab
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
@@ -247,13 +251,14 @@ CONTAINS
     CLASS(t_mat),INTENT(INOUT)::hmat
 
     
-    INTEGER:: nn,na,ab_size,l,ll,m,i,ii
-    COMPLEX,ALLOCATABLE:: ab(:,:),ab1(:,:),ab_select(:,:)
-    real :: rchi
+    INTEGER:: nn,na,l,ll,m,i
+    COMPLEX,ALLOCATABLE:: ab(:,:,:)
+    COMPLEX,ALLOCATABLE:: ab1(:,:),ab_select(:,:)
+    REAL :: rchi
+    INTEGER :: ab_size
 
-    ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2),ab1(lapw%nv(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2),ab_select(lapw%num_local_cols(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
-
-    !IF (iintsp.NE.jintsp) ALLOCATE(ab_select1(lapw%num_local_cols(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
+    ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
+    ALLOCATE(ab1(lapw%nv(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2),ab_select(lapw%num_local_cols(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
 
     IF (hmat%l_real) THEN
        IF (ANY(SHAPE(hmat%data_c)/=SHAPE(hmat%data_r))) THEN
@@ -266,33 +271,31 @@ CONTAINS
     DO nn = 1,atoms%neq(n)
        na = SUM(atoms%neq(:n-1))+nn
        IF ((atoms%invsat(na)==0) .OR. (atoms%invsat(na)==1)) THEN
+
+          CALL timestart("hsmt_abNSPH")
+          DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp)
+             ! iintsp or/and jintsp .ne. 1 on l_ss case
+             CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.) 
+          ENDDO
+          CALL timestop("hsmt_abNSPH")
+        
           rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
           
-          CALL hsmt_ab(sym,atoms,noco,isp,jintsp,n,na,cell,lapw,fj,gj,ab,ab_size,.TRUE.)
-          !Calculate Hamiltonian
-        
-          CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab,SIZE(ab,1),td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
+          CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,jintsp),SIZE(ab,1),td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
           !Cut out of ab1 only the needed elements here
           ab_select=ab1(mpi%n_rank+1:lapw%nv(jintsp):mpi%n_size,:)
           IF (iintsp==jintsp) THEN
              CALL zgemm("N","T",lapw%nv(iintsp),lapw%num_local_cols(iintsp),ab_size,CMPLX(rchi,0.0),CONJG(ab1),SIZE(ab1,1),ab_select,lapw%num_local_cols(iintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))
           ELSE
-             !Second set of ab is needed
-             CALL hsmt_ab(sym,atoms,noco,isp,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,.TRUE.)
-             CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab,SIZE(ab,1),td%h_loc(:,:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
+             CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,iintsp),SIZE(ab,1),td%h_loc(:,:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
              !Multiply for Hamiltonian
              CALL zgemm("N","t",lapw%nv(iintsp),lapw%num_local_cols(jintsp),ab_size,chi,conjg(ab1),SIZE(ab1,1),ab_select,lapw%num_local_cols(jintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))   
           ENDIF
        ENDIF
     END DO
-    !delete lower part of matrix
-    !i=0
-    !DO ii=mpi%n_rank+1,lapw%nv(iintsp),mpi%n_size
-    !   i=i+1
-    !   hmat%data_c(ii+1:,i)=0.0
-    !ENDDO
+
     IF (hmat%l_real) THEN
-       hmat%data_r=hmat%data_r+hmat%data_c
+       hmat%data_r=hmat%data_r+hmat%data_c !(real??)
     ENDIF
     
   END SUBROUTINE priv_MPI

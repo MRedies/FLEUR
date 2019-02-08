@@ -56,19 +56,17 @@ CONTAINS
           
           
           IF (atoms%nlo(n).GE.1) THEN
+             CALL timestart("hsmt_abLO")
              !--->          set up the a,b and c  coefficients
              !--->          for the local orbitals, if necessary.
              !--->          actually, these are the fj,gj equivalents
              CALL setabc1lo(atoms,n,ud,isp, alo1,blo1,clo1) 
-
-             CALL timestart("hsmt_abLO")
              !--->          synthesize the complex conjugates of a and b
              DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp)
                 CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.,abclo(:,:,:,:,i),alo1,blo1,clo1)
              ENDDO
              CALL timestop("hsmt_abLO")
 
-             
              !--->          add the local orbital contribution to the overlap and
              !--->          hamiltonian matrix, if they are used for this atom.
              
