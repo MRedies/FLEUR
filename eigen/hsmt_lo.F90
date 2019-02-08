@@ -12,6 +12,7 @@ CONTAINS
     USE m_hlomat
     USE m_slomat
     USE m_setabc1lo
+    USE m_hsmt_ab
     USE m_types
     IMPLICIT NONE
     TYPE(t_mpi),INTENT(IN)      :: mpi
@@ -36,11 +37,17 @@ CONTAINS
     REAL,INTENT(IN)      :: fj(:,:,:),gj(:,:,:)
     !     ..
     !     .. Local Scalars ..
-    INTEGER na,nn
+    INTEGER na,nn,ab_size,i
     !     ..
     !     .. Local Arrays ..
     REAL alo1(atoms%nlod),blo1(atoms%nlod),clo1(atoms%nlod)
+    COMPLEX, ALLOCATABLE :: ab(:,:,:)
+    COMPLEX,ALLOCATABLE  :: abclo(:,:,:,:,:)
+
+
     CALL timestart("LO setup")
+    ALLOCATE(ab(MAXVAL(lapw%nv),0:2*atoms%lmaxd*(atoms%lmaxd+2)+1,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
+    ALLOCATE(abclo(3,-atoms%llod:atoms%llod,2*(2*atoms%llod+1),atoms%nlod,2))
        
     na = sum(atoms%neq(:n-1))
     DO nn = 1,atoms%neq(n)
@@ -53,16 +60,28 @@ CONTAINS
              !--->          for the local orbitals, if necessary.
              !--->          actually, these are the fj,gj equivalents
              CALL setabc1lo(atoms,n,ud,isp, alo1,blo1,clo1) 
+
+             CALL timestart("hsmt_abLO")
+             !--->          synthesize the complex conjugates of a and b
+             DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp)
+                CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.,abclo(:,:,:,:,i),alo1,blo1,clo1)
+             ENDDO
+             CALL timestop("hsmt_abLO")
+
              
-             !--->       add the local orbital contribution to the overlap and
-             !--->       hamiltonian matrix, if they are used for this atom.
+             !--->          add the local orbital contribution to the overlap and
+             !--->          hamiltonian matrix, if they are used for this atom.
              
              CALL slomat(&
                   input,atoms,mpi,lapw,cell,noco,n,na,&
                   isp,ud, alo1,blo1,clo1,fj,gj,&
                   iintsp,jintsp,chi,smat)
+
+             CALL timestart("hlomat")
              CALL hlomat(input,atoms,mpi,lapw,ud,tlmplm,sym,cell,noco,isp,&
-                  n,na,fj,gj,alo1,blo1,clo1,iintsp,jintsp,chi,hmat)
+                  !n,na,fj,gj,alo1,blo1,clo1,iintsp,jintsp,chi,hmat)
+                  n,na,fj,gj,ab,abclo,ab_size,iintsp,jintsp,chi,hmat)
+             CALL timestop("hlomat")
           ENDIF
     END IF
     !--->    end loop over equivalent atoms
