@@ -12,7 +12,7 @@ MODULE m_hlomat
 !***********************************************************************
 CONTAINS
   SUBROUTINE hlomat(input,atoms,mpi,lapw,ud,tlmplm,sym,cell,noco,isp,&
-       ntyp,na,fj,gj,alo1,blo1,clo1, iintsp,jintsp,chi,hmat)
+       ntyp,na,fj,gj,ab,abclo,ab_size, iintsp,jintsp,chi,hmat)
     !
     USE m_hsmt_ab
     USE m_types
@@ -34,9 +34,10 @@ CONTAINS
     INTEGER, INTENT (IN) :: isp !spin for usdus and tlmplm
     INTEGER, INTENT (IN) :: jintsp,iintsp
     COMPLEX, INTENT (IN) :: chi
+    INTEGER, INTENT (IN) :: ab_size
     !     ..
     !     .. Array Arguments ..
-    REAL, INTENT (IN) :: alo1(:),blo1(:),clo1(:)
+    COMPLEX,INTENT(IN)   :: ab(:,0:,:),abclo(:,-atoms%llod:,:,:,:)
     REAL,INTENT(IN)      :: fj(:,0:,:),gj(:,0:,:)
 
     CLASS(t_mat),INTENT (INOUT) :: hmat
@@ -45,22 +46,14 @@ CONTAINS
     COMPLEX axx,bxx,cxx,dtd,dtu,dtulo,ulotd,ulotu,ulotulo,utd,utu, utulo
     INTEGER im,in,invsfct,l,lm,lmp,lo,lolo,lolop,lop,lp,i  
     INTEGER mp,nkvec,nkvecp,lmplm,loplo,kp,m,mlo,mlolo
-    INTEGER locol,lorow,ii,ij,n,k,ab_size
+    INTEGER locol,lorow,ii,ij,n,k
     !     ..
     !     .. Local Arrays ..
-    COMPLEX, ALLOCATABLE :: ab(:,:,:),ax(:),bx(:),cx(:)
-    COMPLEX,ALLOCATABLE  :: abclo(:,:,:,:,:)
+    COMPLEX, ALLOCATABLE :: ax(:),bx(:),cx(:)
     !     ..
 
 
-    !-->              synthesize the complex conjugates of a and b
-    ALLOCATE(ab(MAXVAL(lapw%nv),0:2*atoms%lmaxd*(atoms%lmaxd+2)+1,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
     ALLOCATE(ax(MAXVAL(lapw%nv)),bx(MAXVAL(lapw%nv)),cx(MAXVAL(lapw%nv)))
-    ALLOCATE(abclo(3,-atoms%llod:atoms%llod,2*(2*atoms%llod+1),atoms%nlod,2))
-    DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp)
-       CALL hsmt_ab(sym,atoms,noco,isp,i,ntyp,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.,abclo(:,:,:,:,i),alo1,blo1,clo1)
-    ENDDO
-
 
     mlo=0;mlolo=0
     DO m=1,ntyp-1
@@ -85,6 +78,7 @@ CONTAINS
           l = atoms%llo(lo,ntyp)
           !--->       calculate the hamiltonian matrix elements with the regular
           !--->       flapw basis-functions
+          CALL timestart("loop1")
           DO m = -l,l
              lm = l* (l+1) + m
              DO kp = 1,lapw%nv(iintsp)
@@ -169,6 +163,7 @@ CONTAINS
                 ENDIF
              END DO
           END DO
+          CALL timestop("loop1")
           !--->       calculate the hamiltonian matrix elements with other
           !--->       local orbitals at the same atom and with itself
           DO nkvec = 1,invsfct* (2*l+1)
