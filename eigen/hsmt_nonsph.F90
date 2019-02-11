@@ -17,6 +17,7 @@ MODULE m_hsmt_nonsph
 CONTAINS
   SUBROUTINE hsmt_nonsph(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
     USE m_types
+    USE m_hsmt_ab
     IMPLICIT NONE
     TYPE(t_mpi),INTENT(IN)        :: mpi
     TYPE(t_sym),INTENT(IN)        :: sym
@@ -38,11 +39,14 @@ CONTAINS
 
     !     .. Local Arrays
 #if defined CPP_GPU
-    COMPLEX,ALLOCATABLE,DEVICE :: h_loc_dev(:,:)
+    COMPLEX,ALLOCATABLE,DEVICE  :: h_loc_dev(:,:)
+    COMPLEX,ALLOCATABLE,MANAGED :: ab(:,:,:)
+#else
+    COMPLEX,ALLOCATABLE:: ab(:,:,:)
 #endif
 
     !     .. Local Scalars
-    INTEGER  nn, na
+    INTEGER  nn, na, i, ab_size
 
     CALL timestart("non-spherical setup")
 
@@ -54,10 +58,17 @@ CONTAINS
        hmat%data_c=0.0
     ENDIF
 
+    ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
+
     DO nn = 1,atoms%neq(n)
        na = SUM(atoms%neq(:n-1))+nn
        IF ((atoms%invsat(na)==0) .OR. (atoms%invsat(na)==1)) THEN
 
+          CALL timestart("hsmt_abNSPH")
+          DO i = MIN(jintsp,iintsp),MAX(jintsp,iintsp)
+              CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.) 
+          ENDDO
+          CALL timestop("hsmt_abNSPH")
 
 !--------------------------
           IF (mpi%n_size==1) THEN
