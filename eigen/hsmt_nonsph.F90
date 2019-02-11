@@ -8,10 +8,10 @@ MODULE m_hsmt_nonsph
   IMPLICIT NONE
   PRIVATE
   PUBLIC hsmt_nonsph
-  INTERFACE priv_noMPI
-    module procedure priv_noMPI_cpu
+  INTERFACE hsmt_nonsph_noMPI
+    module procedure hsmt_nonsph_noMPI_cpu
 #ifdef CPP_GPU
-    module procedure priv_noMPI_gpu
+    module procedure hsmt_nonsph_noMPI_gpu
 #endif
   END INTERFACE
 CONTAINS
@@ -44,17 +44,17 @@ CONTAINS
     ALLOCATE(h_loc_dev(size(td%h_loc,1),size(td%h_loc,2)))
     h_loc_dev(1:,1:) = CONJG(td%h_loc(0:,0:,n,isp)) 
 
-       CALL priv_noMPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj,gj,hmat)
+       CALL hsmt_nonsph_noMPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj,gj,hmat)
 #else
-       CALL priv_noMPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+       CALL hsmt_nonsph_noMPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
 #endif
     ELSE
-       CALL priv_MPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+       CALL hsmt_nonsph_MPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
     ENDIF
     CALL timestop("non-spherical setup")
   END SUBROUTINE hsmt_nonsph
 
-  SUBROUTINE priv_MPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+  SUBROUTINE hsmt_nonsph_MPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
     USE m_hsmt_ab
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
@@ -124,9 +124,9 @@ CONTAINS
        hmat%data_r=hmat%data_r+hmat%data_c !(real??)
     ENDIF
     
-  END SUBROUTINE priv_MPI
+  END SUBROUTINE hsmt_nonsph_MPI
 
-  SUBROUTINE priv_noMPI_cpu(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+  SUBROUTINE hsmt_nonsph_noMPI_cpu(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
     USE m_hsmt_ab
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
@@ -206,10 +206,10 @@ CONTAINS
        hmat%data_r=hmat%data_r+REAL(hmat%data_c)
     ENDIF
 
- END SUBROUTINE priv_noMPI_cpu
+ END SUBROUTINE hsmt_nonsph_noMPI_cpu
 
 #if defined CPP_GPU
-  SUBROUTINE priv_noMPI_gpu(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj_dev,gj_dev,hmat)
+  SUBROUTINE hsmt_nonsph_noMPI_gpu(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj_dev,gj_dev,hmat)
 !Calculate overlap matrix, GPU version
 !note that basically all matrices in the GPU version are conjugates of their cpu counterparts
     USE m_hsmt_ab
@@ -296,7 +296,7 @@ CONTAINS
        hmat%data_r=hmat%data_r+REAL(hmat%data_c)
     ENDIF
     call nvtxEndRange
- END SUBROUTINE priv_noMPI_gpu
+ END SUBROUTINE hsmt_nonsph_noMPI_gpu
 #endif
 
   
