@@ -39,6 +39,17 @@ CONTAINS
     COMPLEX,ALLOCATABLE,DEVICE :: h_loc_dev(:,:)
 #endif
     CALL timestart("non-spherical setup")
+
+    IF (hmat%l_real) THEN
+       IF (ANY(SHAPE(hmat%data_c)/=SHAPE(hmat%data_r))) THEN
+          DEALLOCATE(hmat%data_c)
+          ALLOCATE(hmat%data_c(SIZE(hmat%data_r,1),SIZE(hmat%data_r,2)))
+       ENDIF
+       hmat%data_c=0.0
+    ENDIF
+
+
+!--------------------------
     IF (mpi%n_size==1) THEN
 #if defined CPP_GPU
     ALLOCATE(h_loc_dev(size(td%h_loc,1),size(td%h_loc,2)))
@@ -51,6 +62,13 @@ CONTAINS
     ELSE
        CALL hsmt_nonsph_MPI(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
     ENDIF
+!--------------------------
+
+
+    IF (hmat%l_real) THEN
+       hmat%data_r=hmat%data_r+REAL(hmat%data_c)
+    ENDIF
+
     CALL timestop("non-spherical setup")
   END SUBROUTINE hsmt_nonsph
 
@@ -86,14 +104,6 @@ CONTAINS
     ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
     ALLOCATE(ab1(lapw%nv(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2),ab_select(lapw%num_local_cols(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
 
-    IF (hmat%l_real) THEN
-       IF (ANY(SHAPE(hmat%data_c)/=SHAPE(hmat%data_r))) THEN
-          DEALLOCATE(hmat%data_c)
-          ALLOCATE(hmat%data_c(SIZE(hmat%data_r,1),SIZE(hmat%data_r,2)))
-       ENDIF
-       hmat%data_c=0.0
-    ENDIF
-    
     DO nn = 1,atoms%neq(n)
        na = SUM(atoms%neq(:n-1))+nn
        IF ((atoms%invsat(na)==0) .OR. (atoms%invsat(na)==1)) THEN
@@ -111,19 +121,17 @@ CONTAINS
           !Cut out of ab1 only the needed elements here
           ab_select=ab1(mpi%n_rank+1:lapw%nv(jintsp):mpi%n_size,:)
           IF (iintsp==jintsp) THEN
-             CALL zgemm("N","T",lapw%nv(iintsp),lapw%num_local_cols(iintsp),ab_size,CMPLX(rchi,0.0),CONJG(ab1),SIZE(ab1,1),ab_select,lapw%num_local_cols(iintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))
+             CALL zgemm("N","T",lapw%nv(iintsp),lapw%num_local_cols(iintsp),ab_size,CMPLX(rchi,0.0),CONJG(ab1),&
+                        SIZE(ab1,1),ab_select,lapw%num_local_cols(iintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))
           ELSE
              CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,iintsp),SIZE(ab,1),td%h_loc(:,:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
              !Multiply for Hamiltonian
-             CALL zgemm("N","t",lapw%nv(iintsp),lapw%num_local_cols(jintsp),ab_size,chi,conjg(ab1),SIZE(ab1,1),ab_select,lapw%num_local_cols(jintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))   
+             CALL zgemm("N","t",lapw%nv(iintsp),lapw%num_local_cols(jintsp),ab_size,chi,conjg(ab1),SIZE(ab1,1),&
+                        ab_select,lapw%num_local_cols(jintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))   
           ENDIF
        ENDIF
     END DO
 
-    IF (hmat%l_real) THEN
-       hmat%data_r=hmat%data_r+hmat%data_c !(real??)
-    ENDIF
-    
   END SUBROUTINE hsmt_nonsph_MPI
 
   SUBROUTINE hsmt_nonsph_noMPI_cpu(n,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
@@ -159,14 +167,6 @@ CONTAINS
 
     IF (iintsp.NE.jintsp) ALLOCATE(ab2(lapw%nv(iintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
 
-    IF (hmat%l_real) THEN
-       IF (ANY(SHAPE(hmat%data_c)/=SHAPE(hmat%data_r))) THEN
-          DEALLOCATE(hmat%data_c)
-          ALLOCATE(hmat%data_c(SIZE(hmat%data_r,1),SIZE(hmat%data_r,2)))
-       ENDIF
-       hmat%data_c=0.0
-    ENDIF
-    
     DO nn = 1,atoms%neq(n)
        na = SUM(atoms%neq(:n-1))+nn
        IF ((atoms%invsat(na)==0) .OR. (atoms%invsat(na)==1)) THEN
@@ -201,10 +201,6 @@ CONTAINS
        ENDIF
     END DO
     
-    IF (hmat%l_real) THEN
-       hmat%data_r=hmat%data_r+REAL(hmat%data_c)
-    ENDIF
-
  END SUBROUTINE hsmt_nonsph_noMPI_cpu
 
 #if defined CPP_GPU
@@ -249,14 +245,6 @@ CONTAINS
     ALLOCATE(ab_dev(MAXVAL(lapw%nv),2*atoms%lmaxd*(atoms%lmaxd+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
     IF (iintsp.NE.jintsp) ALLOCATE(ab2_dev(lapw%nv(iintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
 
-    IF (hmat%l_real) THEN
-       IF (ANY(SHAPE(hmat%data_c)/=SHAPE(hmat%data_r))) THEN
-          DEALLOCATE(hmat%data_c)
-          ALLOCATE(hmat%data_c(SIZE(hmat%data_r,1),SIZE(hmat%data_r,2)))
-       ENDIF
-       hmat%data_c=0.0
-    ENDIF
-
     DO nn = 1,atoms%neq(n)
        na = SUM(atoms%neq(:n-1))+nn
        IF ((atoms%invsat(na)==0) .OR. (atoms%invsat(na)==1)) THEN
@@ -289,9 +277,6 @@ CONTAINS
        ENDIF
     END DO
 
-    IF (hmat%l_real) THEN
-       hmat%data_r=hmat%data_r+REAL(hmat%data_c)
-    ENDIF
     call nvtxEndRange
  END SUBROUTINE hsmt_nonsph_noMPI_gpu
 #endif
