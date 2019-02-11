@@ -76,12 +76,12 @@ CONTAINS
              ALLOCATE(h_loc_dev(size(td%h_loc,1),size(td%h_loc,2)))
              h_loc_dev(1:,1:) = CONJG(td%h_loc(0:,0:,n,isp)) 
 
-             CALL hsmt_nonsph_noMPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj,gj,hmat)
+             CALL hsmt_nonsph_noMPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj,gj,ab_size,hmat)
 #else
-             CALL hsmt_nonsph_noMPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+             CALL hsmt_nonsph_noMPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
 #endif
           ELSE
-             CALL hsmt_nonsph_MPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+             CALL hsmt_nonsph_MPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
           ENDIF
 
        ENDIF
@@ -94,7 +94,7 @@ CONTAINS
     CALL timestop("non-spherical setup")
   END SUBROUTINE hsmt_nonsph
 
-  SUBROUTINE hsmt_nonsph_MPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+  SUBROUTINE hsmt_nonsph_MPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
     USE m_hsmt_ab
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
@@ -109,7 +109,7 @@ CONTAINS
     TYPE(t_tlmplm),INTENT(IN)   :: td
     !     ..
     !     .. Scalar Arguments ..
-    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp
+    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp,ab_size
     COMPLEX,INTENT(in)   :: chi
     !     ..
     !     .. Array Arguments ..
@@ -121,7 +121,7 @@ CONTAINS
     COMPLEX,ALLOCATABLE:: ab(:,:,:)
     COMPLEX,ALLOCATABLE:: ab1(:,:),ab_select(:,:)
     REAL :: rchi
-    INTEGER :: ab_size
+    INTEGER :: ab_size2
 
     ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
     ALLOCATE(ab1(lapw%nv(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
@@ -129,7 +129,7 @@ CONTAINS
 
     CALL timestart("hsmt_abNSPH")
     DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp)
-         CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.) 
+         CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size2,.TRUE.) 
     ENDDO
     CALL timestop("hsmt_abNSPH")
        
@@ -152,7 +152,7 @@ CONTAINS
 
   END SUBROUTINE hsmt_nonsph_MPI
 
-  SUBROUTINE hsmt_nonsph_noMPI_cpu(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,hmat)
+  SUBROUTINE hsmt_nonsph_noMPI_cpu(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
     USE m_hsmt_ab
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
@@ -168,7 +168,7 @@ CONTAINS
     TYPE(t_tlmplm),INTENT(IN)   :: td
     !     ..
     !     .. Scalar Arguments ..
-    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp
+    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp,ab_size
     COMPLEX,INTENT(in)   :: chi
     !     ..
     !     .. Array Arguments ..
@@ -176,7 +176,7 @@ CONTAINS
     CLASS(t_mat),INTENT(INOUT)::hmat
 
     
-    INTEGER:: ab_size,l,ll,m,i
+    INTEGER:: ab_size2,l,ll,m,i
     COMPLEX,ALLOCATABLE:: ab(:,:,:),ab1(:,:),ab2(:,:)
     real :: rchi
 
@@ -187,7 +187,7 @@ CONTAINS
 
     CALL timestart("hsmt_abNSPH")
     DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp) 
-       CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.)  
+       CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size2,.TRUE.)  
     ENDDO
     CALL timestop("hsmt_abNSPH")
 
@@ -216,7 +216,7 @@ CONTAINS
  END SUBROUTINE hsmt_nonsph_noMPI_cpu
 
 #if defined CPP_GPU
-  SUBROUTINE hsmt_nonsph_noMPI_gpu(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj_dev,gj_dev,hmat)
+  SUBROUTINE hsmt_nonsph_noMPI_gpu(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj_dev,gj_dev,ab_size,hmat)
 !Calculate overlap matrix, GPU version
 !note that basically all matrices in the GPU version are conjugates of their cpu counterparts
     USE m_hsmt_ab
@@ -240,14 +240,14 @@ CONTAINS
     COMPLEX, INTENT(IN),DEVICE  :: h_loc_dev(:,:)
     !     ..
     !     .. Scalar Arguments ..
-    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp
+    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp,ab_size
     COMPLEX,INTENT(in)   :: chi
     !     ..
     !     .. Array Arguments ..
     REAL,   INTENT(IN),   DEVICE :: fj_dev(:,:,:), gj_dev(:,:,:)
     CLASS(t_mat),INTENT(INOUT)     ::hmat
     
-    INTEGER:: ab_size,l,ll,m
+    INTEGER:: ab_size2,l,ll,m
     real :: rchi
     COMPLEX,ALLOCATABLE,DEVICE :: ab1_dev(:,:), ab_dev(:,:,:), ab2_dev(:,:)
     integer :: i, j, istat
@@ -260,7 +260,7 @@ CONTAINS
     rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
 
     DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp) 
-       CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj_dev,gj_dev,ab_dev(:,:,i),ab_size,.TRUE.)  
+       CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj_dev,gj_dev,ab_dev(:,:,i),ab_size2,.TRUE.)  
     ENDDO
 
     !Calculate Hamiltonian
