@@ -173,7 +173,6 @@ CONTAINS
 
           CALL timestart("hsmt_abNSPH")
           DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp) 
-             ! iintsp or/and jintsp .ne. 1 on l_ss case
              CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.)  
           ENDDO
           CALL timestop("hsmt_abNSPH")
@@ -242,12 +241,12 @@ CONTAINS
     
     INTEGER:: nn,na,ab_size,l,ll,m
     real :: rchi
-    COMPLEX,ALLOCATABLE,DEVICE :: ab1_dev(:,:), ab_dev(:,:), ab2_dev(:,:)
+    COMPLEX,ALLOCATABLE,DEVICE :: ab1_dev(:,:), ab_dev(:,:,:), ab2_dev(:,:)
     integer :: i, j, istat
     call nvtxStartRange("hsmt_nonsph",1)    
 
     ALLOCATE(ab1_dev(lapw%nv(jintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
-    ALLOCATE(ab_dev(MAXVAL(lapw%nv),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
+    ALLOCATE(ab_dev(MAXVAL(lapw%nv),2*atoms%lmaxd*(atoms%lmaxd+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
     IF (iintsp.NE.jintsp) ALLOCATE(ab2_dev(lapw%nv(iintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
 
     IF (hmat%l_real) THEN
@@ -263,20 +262,18 @@ CONTAINS
        IF ((atoms%invsat(na)==0) .OR. (atoms%invsat(na)==1)) THEN
           rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
 
-          CALL hsmt_ab(sym,atoms,noco,isp,jintsp,n,na,cell,lapw,fj_dev,gj_dev,ab_dev,ab_size,.TRUE.)
+          DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp) 
+             CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj_dev,gj_dev,ab_dev(:,:,i),ab_size,.TRUE.)  
+          ENDDO
 
           !Calculate Hamiltonian
-          CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev,SIZE(ab_dev,1),&
+          CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev(1,1,jintsp),SIZE(ab_dev,1),&
                      h_loc_dev,SIZE(h_loc_dev,1),CMPLX(0.,0.),ab1_dev,SIZE(ab1_dev,1))
           IF (iintsp==jintsp) THEN
-             call nvtxStartRange("zherk",3)
              CALL ZHERK("U","N",lapw%nv(iintsp),ab_size,Rchi,ab1_dev,SIZE(ab1_dev,1),1.0,hmat%data_c,SIZE(hmat%data_c,1))
              istat = cudaDeviceSynchronize() 
-             call nvtxEndRange()    
           ELSE  !here the l_ss off-diagonal part starts
-             !Second set of ab is needed
-             CALL hsmt_ab(sym,atoms,noco,isp,iintsp,n,na,cell,lapw,fj_dev,gj_dev,ab_dev,ab_size,.TRUE.)
-             CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev,SIZE(ab_dev,1),&
+             CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev(1,1,iintsp),SIZE(ab_dev,1),&
                         h_loc_dev,SIZE(h_loc_dev,1),CMPLX(0.,0.),ab2_dev,SIZE(ab2_dev,1))
              !Multiply for Hamiltonian
 
