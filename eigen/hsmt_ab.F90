@@ -169,6 +169,7 @@ CONTAINS
 
   SUBROUTINE hsmt_ab_cpu(mpi,sym,atoms,noco,ispin,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,l_nonsph,abclo,alo1,blo1,clo1)
 !Calculate overlap matrix, CPU vesion
+#include"cpp_double.h"
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
     USE m_ylm
@@ -199,6 +200,11 @@ CONTAINS
     COMPLEX,ALLOCATABLE:: c_ph(:,:)
     REAL,ALLOCATABLE   :: gkrot(:,:)
     LOGICAL :: l_apw
+#ifdef CPP_MPI
+    INCLUDE 'mpif.h'
+    COMPLEX, ALLOCATABLE :: zbuf(:)
+    INTEGER  zb_size,ierr
+#endif
    
     ALLOCATE(c_ph(maxval(lapw%nv),MERGE(2,1,noco%l_ss)))
     ALLOCATE(gkrot(3,maxval(lapw%nv)))
@@ -208,7 +214,8 @@ CONTAINS
     ab_size=lmax*(lmax+2)+1
     l_apw=ALL(gj==0.0)
     ab=0.0
-    
+    IF (PRESENT(abclo)) abclo = 0.0   
+ 
     np = sym%invtab(atoms%ngopr(na))
     !--->          set up phase factors
     CALL lapw%phase_factors(iintsp,atoms%taual(:,na),noco%qss,c_ph(:,iintsp))
@@ -226,10 +233,10 @@ CONTAINS
        END DO
     END IF
     !$OMP PARALLEL DO DEFAULT(none) &
-    !$OMP& SHARED(lapw,gkrot,lmax,c_ph,iintsp,ab,fj,gj,abclo,cell,atoms) &
+    !$OMP& SHARED(mpi,lapw,gkrot,lmax,c_ph,iintsp,ab,fj,gj,abclo,cell,atoms) &
     !$OMP& SHARED(alo1,blo1,clo1,ab_size,na,n) &
     !$OMP& PRIVATE(k,vmult,ylm,l,ll1,m,lm,term,invsfct,lo,nkvec)
-    DO k = 1,lapw%nv(iintsp)
+    DO k = 1 + mpi%n_rank,lapw%nv(iintsp), mpi%n_size 
        !-->    generate spherical harmonics
        vmult(:) =  gkrot(:,k)
        CALL ylm4(lmax,vmult,ylm)
@@ -264,6 +271,21 @@ CONTAINS
        
     ENDDO !k-loop
     !$OMP END PARALLEL DO
+
+#ifdef CPP_MPI
+    zb_size = size(ab)
+    ALLOCATE(zbuf(zb_size))
+    CALL MPI_allreduce(ab(:,:),zbuf,zb_size,CPP_MPI_COMPLEX,MPI_SUM,mpi%sub_comm,ierr)
+    CALL CPP_BLAS_ccopy(zb_size,zbuf,1,ab(:,:),1)
+    DEALLOCATE(zbuf)
+    IF (PRESENT(abclo)) THEN
+       zb_size = size(abclo)
+       ALLOCATE(zbuf(zb_size))
+       CALL MPI_allreduce(abclo(:,-atoms%llod:,:,:),zbuf,zb_size,CPP_MPI_COMPLEX,MPI_SUM,mpi%sub_comm,ierr)
+       CALL CPP_BLAS_ccopy(zb_size,zbuf,1,abclo(:,-atoms%llod:,:,:),1)
+       DEALLOCATE(zbuf)
+    ENDIF
+#endif
     IF (.NOT.l_apw) ab_size=ab_size*2
     
   END SUBROUTINE hsmt_ab_cpu
