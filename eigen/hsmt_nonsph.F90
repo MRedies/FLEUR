@@ -70,18 +70,17 @@ CONTAINS
           ENDDO
           CALL timestop("hsmt_abNSPH")
 
-!--------------------------
           IF (mpi%n_size==1) THEN
 #if defined CPP_GPU
              ALLOCATE(h_loc_dev(size(td%h_loc,1),size(td%h_loc,2)))
              h_loc_dev(1:,1:) = CONJG(td%h_loc(0:,0:,n,isp)) 
 
-             CALL hsmt_nonsph_noMPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj,gj,ab_size,hmat)
+             CALL hsmt_nonsph_noMPI(n,na,mpi,atoms,isp,iintsp,jintsp,chi,lapw,h_loc_dev,ab,ab_size,hmat)
 #else
-             CALL hsmt_nonsph_noMPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
+             CALL hsmt_nonsph_noMPI(n,na,mpi,atoms,isp,iintsp,jintsp,chi,lapw,td,ab,ab_size,hmat)
 #endif
           ELSE
-             CALL hsmt_nonsph_MPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
+             CALL hsmt_nonsph_MPI(n,na,mpi,atoms,isp,iintsp,jintsp,chi,lapw,td,ab,ab_size,hmat)
           ENDIF
 
        ENDIF
@@ -94,135 +93,93 @@ CONTAINS
     CALL timestop("non-spherical setup")
   END SUBROUTINE hsmt_nonsph
 
-  SUBROUTINE hsmt_nonsph_MPI(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
-    USE m_hsmt_ab
-    USE m_constants, ONLY : fpi_const,tpi_const
+  SUBROUTINE hsmt_nonsph_MPI(n,na,mpi,atoms,isp,iintsp,jintsp,chi,lapw,td,ab,ab_size,hmat)
     USE m_types
-    USE m_ylm
     IMPLICIT NONE
-    TYPE(t_mpi),INTENT(IN)      :: mpi
-    TYPE(t_sym),INTENT(IN)      :: sym
-    TYPE(t_noco),INTENT(IN)     :: noco
-    TYPE(t_cell),INTENT(IN)     :: cell
-    TYPE(t_atoms),INTENT(IN)    :: atoms
-    TYPE(t_lapw),INTENT(IN)     :: lapw
-    TYPE(t_tlmplm),INTENT(IN)   :: td
+    TYPE(t_mpi),   INTENT(IN)     :: mpi
+    TYPE(t_atoms), INTENT(IN)     :: atoms
+    TYPE(t_lapw),  INTENT(IN)     :: lapw
+    TYPE(t_tlmplm),INTENT(IN)     :: td
+    INTEGER,       INTENT(IN)     :: n,na,isp,iintsp,jintsp,ab_size
+    COMPLEX,       INTENT(IN)     :: chi,ab(:,:,:)
+    CLASS(t_mat),  INTENT(INOUT)  :: hmat
     !     ..
-    !     .. Scalar Arguments ..
-    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp,ab_size
-    COMPLEX,INTENT(in)   :: chi
-    !     ..
-    !     .. Array Arguments ..
-    REAL,INTENT(IN) :: fj(:,0:,:),gj(:,0:,:)
-    CLASS(t_mat),INTENT(INOUT)::hmat
+    !     .. Local Variables
+    COMPLEX,ALLOCATABLE :: ab1(:,:),ab_select(:,:)
+    INTEGER  l,ll,m
+    REAL     rchi
 
-    
-    INTEGER:: l,ll,m,i
-    COMPLEX,ALLOCATABLE:: ab(:,:,:)
-    COMPLEX,ALLOCATABLE:: ab1(:,:),ab_select(:,:)
-    REAL :: rchi
-    INTEGER :: ab_size2
-
-    ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
     ALLOCATE(ab1(lapw%nv(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
     ALLOCATE(ab_select(lapw%num_local_cols(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
-
-    CALL timestart("hsmt_abNSPH")
-    DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp)
-         CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size2,.TRUE.) 
-    ENDDO
-    CALL timestop("hsmt_abNSPH")
-       
     rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
-          
-    CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,jintsp),SIZE(ab,1),&
-                td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
-    !Cut out of ab1 only the needed elements here
-    ab_select=ab1(mpi%n_rank+1:lapw%nv(jintsp):mpi%n_size,:)
     IF (iintsp==jintsp) THEN
+       !Even if iintsp=jintsp=2 in the calling subroutine (hsmt_nonsph),
+       !the local count starts with 1
+       CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,1),SIZE(ab,1),&
+                   td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
+       !Cut out of ab1 only the needed elements here
+       ab_select=ab1(mpi%n_rank+1:lapw%nv(jintsp):mpi%n_size,:)
        CALL zgemm("N","T",lapw%nv(iintsp),lapw%num_local_cols(iintsp),ab_size,CMPLX(rchi,0.0),CONJG(ab1),&
                    SIZE(ab1,1),ab_select,lapw%num_local_cols(iintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))
     ELSE
+       CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,jintsp),SIZE(ab,1),&
+                   td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
+       !Cut out of ab1 only the needed elements here
+       ab_select=ab1(mpi%n_rank+1:lapw%nv(jintsp):mpi%n_size,:)
        CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,iintsp),SIZE(ab,1),td%h_loc(:,:,n,isp),&
                    SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
-       !Multiply for Hamiltonian
        CALL zgemm("N","t",lapw%nv(iintsp),lapw%num_local_cols(jintsp),ab_size,chi,conjg(ab1),SIZE(ab1,1),&
                    ab_select,lapw%num_local_cols(jintsp),CMPLX(1.,0.0),hmat%data_c,SIZE(hmat%data_c,1))   
     ENDIF
 
   END SUBROUTINE hsmt_nonsph_MPI
 
-  SUBROUTINE hsmt_nonsph_noMPI_cpu(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,td,fj,gj,ab_size,hmat)
-    USE m_hsmt_ab
-    USE m_constants, ONLY : fpi_const,tpi_const
+  SUBROUTINE hsmt_nonsph_noMPI_cpu(n,na,mpi,atoms,isp,iintsp,jintsp,chi,lapw,td,ab,ab_size,hmat)
     USE m_types
-    USE m_ylm
-
     IMPLICIT NONE
-    TYPE(t_mpi),INTENT(IN)      :: mpi
-    TYPE(t_sym),INTENT(IN)      :: sym
-    TYPE(t_noco),INTENT(IN)     :: noco
-    TYPE(t_cell),INTENT(IN)     :: cell
-    TYPE(t_atoms),INTENT(IN)    :: atoms
-    TYPE(t_lapw),INTENT(IN)     :: lapw
-    TYPE(t_tlmplm),INTENT(IN)   :: td
+    TYPE(t_mpi),   INTENT(IN)    :: mpi
+    TYPE(t_atoms), INTENT(IN)    :: atoms
+    TYPE(t_lapw),  INTENT(IN)    :: lapw
+    TYPE(t_tlmplm),INTENT(IN)    :: td
+    INTEGER,       INTENT(IN)    :: n,na,isp,iintsp,jintsp,ab_size
+    COMPLEX,       INTENT(in)    :: chi,ab(:,:,:)
+    CLASS(t_mat),  INTENT(INOUT) :: hmat
     !     ..
-    !     .. Scalar Arguments ..
-    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp,ab_size
-    COMPLEX,INTENT(in)   :: chi
-    !     ..
-    !     .. Array Arguments ..
-    REAL,INTENT(IN) :: fj(:,0:,:),gj(:,0:,:)
-    CLASS(t_mat),INTENT(INOUT)::hmat
+    !     .. Local Variables
+    COMPLEX, ALLOCATABLE :: ab1(:,:),ab2(:,:)
+    REAL     rchi
+    INTEGER  l,ll,m
 
-    
-    INTEGER:: ab_size2,l,ll,m,i
-    COMPLEX,ALLOCATABLE:: ab(:,:,:),ab1(:,:),ab2(:,:)
-    real :: rchi
-
-    ALLOCATE(ab(MAXVAL(lapw%nv),2*atoms%lmaxd*(atoms%lmaxd+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
-    ALLOCATE(ab1(lapw%nv(jintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
-
-    IF (iintsp.NE.jintsp) ALLOCATE(ab2(lapw%nv(iintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
-
-    CALL timestart("hsmt_abNSPH")
-    DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp) 
-       CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size2,.TRUE.)  
-    ENDDO
-    CALL timestop("hsmt_abNSPH")
-
+    ALLOCATE(ab1(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
+    IF (iintsp.NE.jintsp) ALLOCATE(ab2(MAXVAL(lapw%nv),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
     rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
-
-    !Calculate Hamiltonian
-    CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,jintsp),SIZE(ab,1),&
-               td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
-    !ab1=MATMUL(ab(:lapw%nv(iintsp),:ab_size),td%h_loc(:ab_size,:ab_size,n,isp))
     IF (iintsp==jintsp) THEN
+       !Even if iintsp=jintsp=2 in the calling subroutine (hsmt_nonsph),
+       !the local count starts with 1
+       CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,1),SIZE(ab,1),&
+                   td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
        IF (isp<3) THEN
-          CALL ZHERK("U","N",lapw%nv(iintsp),ab_size,Rchi,CONJG(ab1),SIZE(ab1,1),1.0,hmat%data_c,SIZE(hmat%data_c,1))
+          CALL zherk("U","N",lapw%nv(iintsp),ab_size,Rchi,CONJG(ab1),SIZE(ab1,1),1.0,hmat%data_c,SIZE(hmat%data_c,1))
        ELSE !This is the case of a local off-diagonal contribution.
             !It is not Hermitian, so we need to USE zgemm CALL
-          CALL zgemm("N","T",lapw%nv(iintsp),lapw%nv(jintsp),ab_size,chi,CONJG(ab),SIZE(ab,1),&
-                     ab1,SIZE(ab1,1),CMPLX(1.0,0.0),hmat%data_c,SIZE(hmat%data_c,1))
+          CALL zgemm("N","T",lapw%nv(iintsp),lapw%nv(jintsp),ab_size,chi,CONJG(ab(1,1,jintsp)),SIZE(ab,1),&
+                      ab1,SIZE(ab1,1),CMPLX(1.0,0.0),hmat%data_c,SIZE(hmat%data_c,1))
        ENDIF
     ELSE  !here the l_ss off-diagonal part starts
+       CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,jintsp),SIZE(ab,1),&
+                   td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab1,SIZE(ab1,1))
        CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab(1,1,iintsp),SIZE(ab,1),&
-                  td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab2,SIZE(ab2,1))
-       !Multiply for Hamiltonian
+                   td%h_loc(0:,0:,n,isp),SIZE(td%h_loc,1),CMPLX(0.,0.),ab2,SIZE(ab2,1))
        CALL zgemm("N","T",lapw%nv(iintsp),lapw%nv(jintsp),ab_size,chi,conjg(ab2),SIZE(ab2,1),&
-                  ab1,SIZE(ab1,1),CMPLX(1.0,0.0),hmat%data_c,SIZE(hmat%data_c,1))
+                   ab1,SIZE(ab1,1),CMPLX(1.0,0.0),hmat%data_c,SIZE(hmat%data_c,1))
     ENDIF
     
  END SUBROUTINE hsmt_nonsph_noMPI_cpu
 
 #if defined CPP_GPU
-  SUBROUTINE hsmt_nonsph_noMPI_gpu(n,na,mpi,sym,atoms,isp,iintsp,jintsp,chi,noco,cell,lapw,h_loc_dev,fj_dev,gj_dev,ab_size,hmat)
-!Calculate overlap matrix, GPU version
-!note that basically all matrices in the GPU version are conjugates of their cpu counterparts
-    USE m_hsmt_ab
-    USE m_constants, ONLY : fpi_const,tpi_const
+  SUBROUTINE hsmt_nonsph_noMPI_gpu(n,na,mpi,atoms,isp,iintsp,jintsp,chi,lapw,h_loc_dev,ab_dev,ab_size,hmat)
+  !note that basically all matrices in the GPU version are conjugates of their cpu counterparts
     USE m_types
-    USE m_ylm
   !   cublas: required to use generic BLAS interface
   !   cudafor: required to use CUDA runtime API routines 
   !   nvtx: profiling
@@ -231,60 +188,48 @@ CONTAINS
     USE nvtx
 
     IMPLICIT NONE
-    TYPE(t_mpi),INTENT(IN)      :: mpi
-    TYPE(t_sym),INTENT(IN)      :: sym
-    TYPE(t_noco),INTENT(IN)     :: noco
-    TYPE(t_cell),INTENT(IN)     :: cell
-    TYPE(t_atoms),INTENT(IN)    :: atoms
-    TYPE(t_lapw),INTENT(IN)     :: lapw
-    COMPLEX, INTENT(IN),DEVICE  :: h_loc_dev(:,:)
+    TYPE(t_mpi),   INTENT(IN)         :: mpi
+    TYPE(t_atoms), INTENT(IN)         :: atoms
+    TYPE(t_lapw),  INTENT(IN)         :: lapw
+    INTEGER,       INTENT(IN)         :: n,na,isp,iintsp,jintsp,ab_size
+    COMPLEX,       INTENT(IN)         :: chi
+    COMPLEX,       INTENT(IN), DEVICE :: h_loc_dev(:,:)
+    COMPLEX,       INTENT(IN), DEVICE :: ab_dev(:,:,:)
+    CLASS(t_mat),  INTENT(INOUT)      :: hmat
     !     ..
-    !     .. Scalar Arguments ..
-    INTEGER, INTENT (IN) :: n,na,isp,iintsp,jintsp,ab_size
-    COMPLEX,INTENT(in)   :: chi
-    !     ..
-    !     .. Array Arguments ..
-    REAL,   INTENT(IN),   DEVICE :: fj_dev(:,:,:), gj_dev(:,:,:)
-    CLASS(t_mat),INTENT(INOUT)     ::hmat
-    
-    INTEGER:: ab_size2,l,ll,m
-    real :: rchi
-    COMPLEX,ALLOCATABLE,DEVICE :: ab1_dev(:,:), ab_dev(:,:,:), ab2_dev(:,:)
-    integer :: i, j, istat
-    call nvtxStartRange("hsmt_nonsph",1)    
+    !     .. Local Variables
+    COMPLEX, ALLOCATABLE, DEVICE :: ab1_dev(:,:), ab2_dev(:,:)
+    REAL rchi
+    INTEGER  l,ll,m,i,j,istat
 
-    ALLOCATE(ab1_dev(lapw%nv(jintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
-    ALLOCATE(ab_dev(MAXVAL(lapw%nv),2*atoms%lmaxd*(atoms%lmaxd+2)+2,MIN(jintsp,iintsp):MAX(jintsp,iintsp)))
+    CALL nvtxStartRange("hsmt_nonsph",1)    
+
+    ALLOCATE(ab1_dev(lapw%nv(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
     IF (iintsp.NE.jintsp) ALLOCATE(ab2_dev(lapw%nv(iintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
-
     rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
-
-    DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp) 
-       CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj_dev,gj_dev,ab_dev(:,:,i),ab_size2,.TRUE.)  
-    ENDDO
-
-    !Calculate Hamiltonian
-    CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev(1,1,jintsp),SIZE(ab_dev,1),&
-               h_loc_dev,SIZE(h_loc_dev,1),CMPLX(0.,0.),ab1_dev,SIZE(ab1_dev,1))
     IF (iintsp==jintsp) THEN
-       CALL ZHERK("U","N",lapw%nv(iintsp),ab_size,Rchi,ab1_dev,SIZE(ab1_dev,1),1.0,hmat%data_c,SIZE(hmat%data_c,1))
+       !Even if iintsp=jintsp=2 in the calling subroutine (hsmt_nonsph),
+       !the local count starts with 1
+       CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev(1,1,1),SIZE(ab_dev,1),&
+                   h_loc_dev,SIZE(h_loc_dev,1),CMPLX(0.,0.),ab1_dev,SIZE(ab1_dev,1))
+       CALL zherk("U","N",lapw%nv(iintsp),ab_size,Rchi,ab1_dev,SIZE(ab1_dev,1),1.0,hmat%data_c,SIZE(hmat%data_c,1))
        istat = cudaDeviceSynchronize() 
     ELSE  !here the l_ss off-diagonal part starts
+       CALL zgemm("N","N",lapw%nv(jintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev(1,1,jintsp),SIZE(ab_dev,1),&
+                   h_loc_dev,SIZE(h_loc_dev,1),CMPLX(0.,0.),ab1_dev,SIZE(ab1_dev,1))
        CALL zgemm("N","N",lapw%nv(iintsp),ab_size,ab_size,CMPLX(1.0,0.0),ab_dev(1,1,iintsp),SIZE(ab_dev,1),&
-                  h_loc_dev,SIZE(h_loc_dev,1),CMPLX(0.,0.),ab2_dev,SIZE(ab2_dev,1))
-       !Multiply for Hamiltonian
-
+                   h_loc_dev,SIZE(h_loc_dev,1),CMPLX(0.,0.),ab2_dev,SIZE(ab2_dev,1))
        !$cuf kernel do<<<*,256>>>
-       do i = 1,size(ab1_dev,2)
-         do j = 1,size(ab1_dev,1)
+       DO i = 1,size(ab1_dev,2)
+         DO j = 1,size(ab1_dev,1)
             ab1_dev(j,i) = conjg(ab1_dev(j,i))
-         enddo
-       enddo
+         ENDDO
+       ENDDO
        CALL zgemm("N","T",lapw%nv(iintsp),lapw%nv(jintsp),ab_size,chi,ab2_dev,SIZE(ab2_dev,1),&
-                  ab1_dev,SIZE(ab1_dev,1),CMPLX(1.0,0.0),hmat%data_c,SIZE(hmat%data_c,1))
+                   ab1_dev,SIZE(ab1_dev,1),CMPLX(1.0,0.0),hmat%data_c,SIZE(hmat%data_c,1))
     ENDIF
 
-    call nvtxEndRange
+    CALL nvtxEndRange
  END SUBROUTINE hsmt_nonsph_noMPI_gpu
 #endif
 
