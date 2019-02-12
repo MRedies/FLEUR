@@ -4,18 +4,140 @@
 ! of the MIT license as expressed in the LICENSE file in more detail.
 !--------------------------------------------------------------------------------
 MODULE m_hsmt_ab
-  use m_juDFT
-  implicit none
+  USE m_juDFT
+  IMPLICIT NONE
 
   INTERFACE hsmt_ab
-    module procedure hsmt_ab_cpu
+    MODULE PROCEDURE hsmt_ab_cpu
 #ifdef CPP_GPU
-    module procedure hsmt_ab_gpu
+    MODULE PROCEDURE hsmt_ab_gpu
 #endif
   END INTERFACE
 
 
 CONTAINS
+
+  SUBROUTINE hsmt_ab_cpu(mpi,sym,atoms,noco,ispin,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,l_nonsph,abclo,alo1,blo1,clo1)
+#include"cpp_double.h"
+    USE m_constants, ONLY : fpi_const
+    USE m_types
+    USE m_ylm
+    IMPLICIT NONE
+    TYPE(t_mpi),   INTENT(IN)    :: mpi
+    TYPE(t_sym),   INTENT(IN)    :: sym
+    TYPE(t_cell),  INTENT(IN)    :: cell
+    TYPE(t_atoms), INTENT(IN)    :: atoms
+    TYPE(t_lapw),  INTENT(IN)    :: lapw
+    TYPE(t_noco),  INTENT(IN)    :: noco
+    !     ..
+    !     .. Scalar Arguments ..
+    INTEGER, INTENT (IN)  :: ispin,n,na,iintsp
+    LOGICAL, INTENT(IN)   :: l_nonsph
+    INTEGER, INTENT(OUT)  :: ab_size
+    !     ..
+    !     .. Array Arguments ..
+    REAL,    INTENT(IN)    :: fj(:,0:,:),gj(:,0:,:)
+    COMPLEX, INTENT (OUT)  :: ab(:,:)
+    !Optional arguments if abc coef for LOs are needed
+    COMPLEX, INTENT(INOUT), OPTIONAL :: abclo(:,-atoms%llod:,:,:)
+    REAL,    INTENT(IN),    OPTIONAL :: alo1(:),blo1(:),clo1(:)
+    
+    LOGICAL :: l_apw
+    INTEGER :: np,k,l,ll1,m,lmax,nkvec,lo,lm,invsfct
+    COMPLEX :: term
+    REAL    :: th,v(3),bmrot(3,3),vmult(3)
+    COMPLEX :: ylm((atoms%lmaxd+1)**2)
+    COMPLEX, ALLOCATABLE :: c_ph(:,:)
+    REAL, ALLOCATABLE    :: gkrot(:,:)
+#ifdef CPP_MPI
+    INCLUDE 'mpif.h'
+    COMPLEX, ALLOCATABLE :: zbuf(:)
+    INTEGER  zb_size,ierr
+#endif
+   
+    ALLOCATE(c_ph(maxval(lapw%nv),MERGE(2,1,noco%l_ss)))
+    ALLOCATE(gkrot(3,maxval(lapw%nv)))
+
+    lmax=MERGE(atoms%lnonsph(n),atoms%lmax(n),l_nonsph)
+    
+    ab_size=lmax*(lmax+2)+1
+    l_apw=ALL(gj==0.0)
+    ab=0.0
+    IF (PRESENT(abclo)) abclo = 0.0   
+ 
+    np = sym%invtab(atoms%ngopr(na))
+    !--->          set up phase factors
+    CALL lapw%phase_factors(iintsp,atoms%taual(:,na),noco%qss,c_ph(:,iintsp))
+    
+    IF (np==1) THEN
+       gkrot(:, 1:lapw%nv(iintsp)) = lapw%gk(:, 1:lapw%nv(iintsp),iintsp)
+    ELSE
+       bmrot=MATMUL(1.*sym%mrot(:,:,np),cell%bmat)
+       DO k = 1,lapw%nv(iintsp)
+          !-->  apply the rotation that brings this atom into the
+          !-->  representative (this is the definition of ngopr(na)
+          !-->  and transform to cartesian coordinates
+          v(:) = lapw%vk(:,k,iintsp)
+          gkrot(:,k) = MATMUL(TRANSPOSE(bmrot),v)
+       END DO
+    END IF
+    !$OMP PARALLEL DO DEFAULT(none) &
+    !$OMP& SHARED(mpi,lapw,gkrot,lmax,c_ph,iintsp,ab,fj,gj,abclo,cell,atoms) &
+    !$OMP& SHARED(alo1,blo1,clo1,ab_size,na,n) &
+    !$OMP& PRIVATE(k,vmult,ylm,l,ll1,m,lm,term,invsfct,lo,nkvec)
+    DO k = 1 + mpi%n_rank,lapw%nv(iintsp), mpi%n_size 
+       !-->    generate spherical harmonics
+       vmult(:) =  gkrot(:,k)
+       CALL ylm4(lmax,vmult,ylm)
+       !-->  synthesize the complex conjugates of a and b
+       DO l = 0,lmax
+          ll1 = l* (l+1)
+          DO m = -l,l               
+             term = c_ph(k,iintsp)*ylm(ll1+m+1)
+             ab(k,ll1+m+1)         = fj(k,l,iintsp)*term
+             ab(k,ll1+m+1+ab_size) = gj(k,l,iintsp)*term
+          END DO
+       END DO
+       IF (PRESENT(abclo)) THEN
+          !determine also the abc coeffs for LOs
+          invsfct=MERGE(1,2,atoms%invsat(na).EQ.0)
+          term = fpi_const/SQRT(cell%omtil)* ((atoms%rmt(n)**2)/2)*c_ph(k,iintsp)
+          DO lo = 1,atoms%nlo(n)
+             l = atoms%llo(lo,n)
+             DO nkvec=1,invsfct*(2*l+1)
+                IF (lapw%kvec(nkvec,lo,na)==k) THEN !This k-vector is used in LO
+                   ll1 = l*(l+1) + 1
+                   DO m = -l,l
+                      lm = ll1 + m
+                      abclo(1,m,nkvec,lo) = term*ylm(lm)*alo1(lo)
+                      abclo(2,m,nkvec,lo) = term*ylm(lm)*blo1(lo)
+                      abclo(3,m,nkvec,lo) = term*ylm(lm)*clo1(lo)
+                   END DO
+                END IF
+             ENDDO
+          ENDDO
+       ENDIF
+       
+    ENDDO !k-loop
+    !$OMP END PARALLEL DO
+
+#ifdef CPP_MPI
+    zb_size = size(ab)
+    ALLOCATE(zbuf(zb_size))
+    CALL MPI_allreduce(ab(:,:),zbuf,zb_size,CPP_MPI_COMPLEX,MPI_SUM,mpi%sub_comm,ierr)
+    CALL CPP_BLAS_ccopy(zb_size,zbuf,1,ab(:,:),1)
+    DEALLOCATE(zbuf)
+    IF (PRESENT(abclo)) THEN
+       zb_size = size(abclo)
+       ALLOCATE(zbuf(zb_size))
+       CALL MPI_allreduce(abclo(:,-atoms%llod:,:,:),zbuf,zb_size,CPP_MPI_COMPLEX,MPI_SUM,mpi%sub_comm,ierr)
+       CALL CPP_BLAS_ccopy(zb_size,zbuf,1,abclo(:,-atoms%llod:,:,:),1)
+       DEALLOCATE(zbuf)
+    ENDIF
+#endif
+    IF (.NOT.l_apw) ab_size=ab_size*2
+    
+  END SUBROUTINE hsmt_ab_cpu
 
 #ifdef CPP_GPU
 
@@ -167,126 +289,5 @@ CONTAINS
   END SUBROUTINE hsmt_ab_gpu
 #endif
 
-  SUBROUTINE hsmt_ab_cpu(mpi,sym,atoms,noco,ispin,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,l_nonsph,abclo,alo1,blo1,clo1)
-!Calculate overlap matrix, CPU vesion
-#include"cpp_double.h"
-    USE m_constants, ONLY : fpi_const,tpi_const
-    USE m_types
-    USE m_ylm
-    IMPLICIT NONE
-    TYPE(t_mpi),  INTENT(IN)    :: mpi
-    TYPE(t_sym),INTENT(IN)      :: sym
-    TYPE(t_cell),INTENT(IN)     :: cell
-    TYPE(t_atoms),INTENT(IN)    :: atoms
-    TYPE(t_lapw),INTENT(IN)     :: lapw
-    TYPE(t_noco),INTENT(IN)     :: noco
-    !     ..
-    !     .. Scalar Arguments ..
-    INTEGER, INTENT (IN) :: ispin,n,na,iintsp
-    LOGICAL,INTENT(IN)   :: l_nonsph
-    INTEGER,INTENT(OUT)  :: ab_size
-    !     ..
-    !     .. Array Arguments ..
-    REAL,INTENT(IN)       :: fj(:,0:,:),gj(:,0:,:)
-    COMPLEX, INTENT (OUT) :: ab(:,:)
-    !Optional arguments if abc coef for LOs are needed
-    COMPLEX, INTENT(INOUT),OPTIONAL:: abclo(:,-atoms%llod:,:,:)
-    REAL,INTENT(IN),OPTIONAL:: alo1(:),blo1(:),clo1(:)
-    
-    INTEGER:: np,k,l,ll1,m,lmax,nkvec,lo,lm,invsfct
-    COMPLEX:: term
-    REAL   :: th,v(3),bmrot(3,3),vmult(3)
-    COMPLEX :: ylm((atoms%lmaxd+1)**2)
-    COMPLEX,ALLOCATABLE:: c_ph(:,:)
-    REAL,ALLOCATABLE   :: gkrot(:,:)
-    LOGICAL :: l_apw
-#ifdef CPP_MPI
-    INCLUDE 'mpif.h'
-    COMPLEX, ALLOCATABLE :: zbuf(:)
-    INTEGER  zb_size,ierr
-#endif
-   
-    ALLOCATE(c_ph(maxval(lapw%nv),MERGE(2,1,noco%l_ss)))
-    ALLOCATE(gkrot(3,maxval(lapw%nv)))
 
-    lmax=MERGE(atoms%lnonsph(n),atoms%lmax(n),l_nonsph)
-    
-    ab_size=lmax*(lmax+2)+1
-    l_apw=ALL(gj==0.0)
-    ab=0.0
-    IF (PRESENT(abclo)) abclo = 0.0   
- 
-    np = sym%invtab(atoms%ngopr(na))
-    !--->          set up phase factors
-    CALL lapw%phase_factors(iintsp,atoms%taual(:,na),noco%qss,c_ph(:,iintsp))
-    
-    IF (np==1) THEN
-       gkrot(:, 1:lapw%nv(iintsp)) = lapw%gk(:, 1:lapw%nv(iintsp),iintsp)
-    ELSE
-       bmrot=MATMUL(1.*sym%mrot(:,:,np),cell%bmat)
-       DO k = 1,lapw%nv(iintsp)
-          !-->  apply the rotation that brings this atom into the
-          !-->  representative (this is the definition of ngopr(na)
-          !-->  and transform to cartesian coordinates
-          v(:) = lapw%vk(:,k,iintsp)
-          gkrot(:,k) = MATMUL(TRANSPOSE(bmrot),v)
-       END DO
-    END IF
-    !$OMP PARALLEL DO DEFAULT(none) &
-    !$OMP& SHARED(mpi,lapw,gkrot,lmax,c_ph,iintsp,ab,fj,gj,abclo,cell,atoms) &
-    !$OMP& SHARED(alo1,blo1,clo1,ab_size,na,n) &
-    !$OMP& PRIVATE(k,vmult,ylm,l,ll1,m,lm,term,invsfct,lo,nkvec)
-    DO k = 1 + mpi%n_rank,lapw%nv(iintsp), mpi%n_size 
-       !-->    generate spherical harmonics
-       vmult(:) =  gkrot(:,k)
-       CALL ylm4(lmax,vmult,ylm)
-       !-->  synthesize the complex conjugates of a and b
-       DO l = 0,lmax
-          ll1 = l* (l+1)
-          DO m = -l,l               
-             term = c_ph(k,iintsp)*ylm(ll1+m+1)
-             ab(k,ll1+m+1)         = fj(k,l,iintsp)*term
-             ab(k,ll1+m+1+ab_size) = gj(k,l,iintsp)*term
-          END DO
-       END DO
-       IF (PRESENT(abclo)) THEN
-          !determine also the abc coeffs for LOs
-          invsfct=MERGE(1,2,atoms%invsat(na).EQ.0)
-          term = fpi_const/SQRT(cell%omtil)* ((atoms%rmt(n)**2)/2)*c_ph(k,iintsp)
-          DO lo = 1,atoms%nlo(n)
-             l = atoms%llo(lo,n)
-             DO nkvec=1,invsfct*(2*l+1)
-                IF (lapw%kvec(nkvec,lo,na)==k) THEN !This k-vector is used in LO
-                   ll1 = l*(l+1) + 1
-                   DO m = -l,l
-                      lm = ll1 + m
-                      abclo(1,m,nkvec,lo) = term*ylm(lm)*alo1(lo)
-                      abclo(2,m,nkvec,lo) = term*ylm(lm)*blo1(lo)
-                      abclo(3,m,nkvec,lo) = term*ylm(lm)*clo1(lo)
-                   END DO
-                END IF
-             ENDDO
-          ENDDO
-       ENDIF
-       
-    ENDDO !k-loop
-    !$OMP END PARALLEL DO
-
-#ifdef CPP_MPI
-    zb_size = size(ab)
-    ALLOCATE(zbuf(zb_size))
-    CALL MPI_allreduce(ab(:,:),zbuf,zb_size,CPP_MPI_COMPLEX,MPI_SUM,mpi%sub_comm,ierr)
-    CALL CPP_BLAS_ccopy(zb_size,zbuf,1,ab(:,:),1)
-    DEALLOCATE(zbuf)
-    IF (PRESENT(abclo)) THEN
-       zb_size = size(abclo)
-       ALLOCATE(zbuf(zb_size))
-       CALL MPI_allreduce(abclo(:,-atoms%llod:,:,:),zbuf,zb_size,CPP_MPI_COMPLEX,MPI_SUM,mpi%sub_comm,ierr)
-       CALL CPP_BLAS_ccopy(zb_size,zbuf,1,abclo(:,-atoms%llod:,:,:),1)
-       DEALLOCATE(zbuf)
-    ENDIF
-#endif
-    IF (.NOT.l_apw) ab_size=ab_size*2
-    
-  END SUBROUTINE hsmt_ab_cpu
 END MODULE m_hsmt_ab
