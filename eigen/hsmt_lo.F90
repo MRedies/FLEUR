@@ -42,7 +42,7 @@ CONTAINS
     !     .. Local Arrays ..
     REAL alo1(atoms%nlod),blo1(atoms%nlod),clo1(atoms%nlod)
     COMPLEX, ALLOCATABLE :: ab(:,:,:)
-    COMPLEX,ALLOCATABLE  :: abclo(:,:,:,:,:)
+    COMPLEX, ALLOCATABLE :: abclo(:,:,:,:,:)
 
 
     CALL timestart("LO setup")
@@ -63,7 +63,7 @@ CONTAINS
              CALL setabc1lo(atoms,n,ud,isp, alo1,blo1,clo1) 
              !--->          synthesize the complex conjugates of a and b
              DO i=MIN(jintsp,iintsp),MAX(jintsp,iintsp)
-                CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.,abclo(:,:,:,:,i),alo1,blo1,clo1)
+                CALL hsmt_ab(mpi,sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.,abclo(:,:,:,:,i),alo1,blo1,clo1)
              ENDDO
              CALL timestop("hsmt_abLO")
 

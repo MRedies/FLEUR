@@ -52,7 +52,7 @@ CONTAINS
   END SUBROUTINE synth_ab
 
 
-  SUBROUTINE hsmt_ab_gpu(sym,atoms,noco,ispin,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,l_nonsph,abclo,alo1,blo1,clo1)
+  SUBROUTINE hsmt_ab_gpu(mpi,sym,atoms,noco,ispin,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,l_nonsph,abclo,alo1,blo1,clo1)
 !Calculate overlap matrix, GPU version
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
@@ -60,6 +60,7 @@ CONTAINS
     USE cudafor
     USE nvtx
     IMPLICIT NONE
+    TYPE(t_mpi),  INTENT(IN)    :: mpi
     TYPE(t_sym),INTENT(IN)      :: sym
     TYPE(t_cell),INTENT(IN)     :: cell
     TYPE(t_atoms),INTENT(IN)    :: atoms
@@ -166,12 +167,13 @@ CONTAINS
   END SUBROUTINE hsmt_ab_gpu
 #endif
 
-  SUBROUTINE hsmt_ab_cpu(sym,atoms,noco,ispin,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,l_nonsph,abclo,alo1,blo1,clo1)
+  SUBROUTINE hsmt_ab_cpu(mpi,sym,atoms,noco,ispin,iintsp,n,na,cell,lapw,fj,gj,ab,ab_size,l_nonsph,abclo,alo1,blo1,clo1)
 !Calculate overlap matrix, CPU vesion
     USE m_constants, ONLY : fpi_const,tpi_const
     USE m_types
     USE m_ylm
     IMPLICIT NONE
+    TYPE(t_mpi),  INTENT(IN)    :: mpi
     TYPE(t_sym),INTENT(IN)      :: sym
     TYPE(t_cell),INTENT(IN)     :: cell
     TYPE(t_atoms),INTENT(IN)    :: atoms

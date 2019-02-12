@@ -66,7 +66,7 @@ CONTAINS
 
           CALL timestart("hsmt_abNSPH")
           DO i = MIN(jintsp,iintsp),MAX(jintsp,iintsp)
-              CALL hsmt_ab(sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.) 
+              CALL hsmt_ab(mpi,sym,atoms,noco,isp,i,n,na,cell,lapw,fj,gj,ab(:,:,i),ab_size,.TRUE.) 
           ENDDO
           CALL timestop("hsmt_abNSPH")
 
@@ -205,7 +205,7 @@ CONTAINS
     CALL nvtxStartRange("hsmt_nonsph",1)    
 
     ALLOCATE(ab1_dev(lapw%nv(jintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
-    IF (iintsp.NE.jintsp) ALLOCATE(ab2_dev(lapw%nv(iintsp),2*atoms%lmaxd*(atoms%lmaxd+2)+2))
+    IF (iintsp.NE.jintsp) ALLOCATE(ab2_dev(lapw%nv(iintsp),2*atoms%lnonsph(n)*(atoms%lnonsph(n)+2)+2))
     rchi=MERGE(REAL(chi),REAL(chi)*2,(atoms%invsat(na)==0))
     IF (iintsp==jintsp) THEN
        !Even if iintsp=jintsp=2 in the calling subroutine (hsmt_nonsph),
