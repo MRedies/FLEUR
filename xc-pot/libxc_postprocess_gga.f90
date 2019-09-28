@@ -66,7 +66,7 @@ CONTAINS
       ALLOCATE(grad_vsigma%gr(3,nsp,n_sigma))
       CALL pw_to_grid(xcpot%needs_grad(),n_sigma,.false.,stars,cell,vsigma_g,grad_vsigma,xcpot)
 
-      CALL libxc_postprocess_gga(transpose(grad%vsigma),grad,grad_vsigma,v_xc)
+      CALL libxc_postprocess_gga(transpose(grad%vsigma),grad,grad_vsigma,rho,v_xc)
    END SUBROUTINE libxc_postprocess_gga_pw
 
    SUBROUTINE libxc_postprocess_gga(vsigma,grad,grad_vsigma,rho,v_xc)
