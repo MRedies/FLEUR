@@ -40,7 +40,7 @@ CONTAINS
       CALL libxc_postprocess_gga(transpose(grad%vsigma),grad,grad_vsigma,v_xc)
    END SUBROUTINE libxc_postprocess_gga_mt
 
-   SUBROUTINE libxc_postprocess_gga_pw(xcpot,stars,cell,v_xc,grad)
+   SUBROUTINE libxc_postprocess_gga_pw(xcpot,stars,cell,grad,v_xc)
       USE m_pw_tofrom_grid
       USE m_types
 
@@ -48,8 +48,8 @@ CONTAINS
       CLASS(t_xcpot),INTENT(IN)   :: xcpot
       TYPE(t_stars),INTENT(IN)    :: stars
       TYPE(t_cell),INTENT(IN)     :: cell
-      REAL,INTENT(INOUT)          :: v_xc(:,:)
       TYPE(t_gradients),INTENT(IN):: grad
+      REAL,INTENT(INOUT)          :: v_xc(:,:)
 
       COMPLEX,ALLOCATABLE:: vsigma_g(:,:)
       REAL,ALLOCATABLE:: vsigma(:,:)
