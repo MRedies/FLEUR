@@ -40,7 +40,7 @@ CONTAINS
       CALL libxc_postprocess_gga(transpose(grad%vsigma),grad,grad_vsigma,v_xc)
    END SUBROUTINE libxc_postprocess_gga_mt
 
-   SUBROUTINE libxc_postprocess_gga_pw(xcpot,stars,cell,grad,v_xc)
+   SUBROUTINE libxc_postprocess_gga_pw(xcpot,stars,cell,grad,rho,v_xc)
       USE m_pw_tofrom_grid
       USE m_types
 
@@ -49,6 +49,7 @@ CONTAINS
       TYPE(t_stars),INTENT(IN)    :: stars
       TYPE(t_cell),INTENT(IN)     :: cell
       TYPE(t_gradients),INTENT(IN):: grad
+      REAL, ALLOCATABLE,INTENT(IN):: rho(:,:)
       REAL,INTENT(INOUT)          :: v_xc(:,:)
 
       COMPLEX,ALLOCATABLE:: vsigma_g(:,:)
@@ -68,16 +69,19 @@ CONTAINS
       CALL libxc_postprocess_gga(transpose(grad%vsigma),grad,grad_vsigma,v_xc)
    END SUBROUTINE libxc_postprocess_gga_pw
 
-   SUBROUTINE libxc_postprocess_gga(vsigma,grad,grad_vsigma,v_xc)
+   SUBROUTINE libxc_postprocess_gga(vsigma,grad,grad_vsigma,rho,v_xc)
       USE m_types
       IMPLICIT NONE
       REAL,INTENT(IN)             :: vsigma(:,:)
       TYPE(t_gradients),INTENT(IN):: grad,grad_vsigma
+      REAL,INTENT(IN)             :: rho(:,:)
       REAL,INTENT(INOUT)          :: v_xc(:,:)
       INTEGER:: i
       IF (SIZE(v_xc,2)==1) THEN !Single spin
          DO i=1,SIZE(v_xc,1) !loop over points
-            v_xc(i,1)=v_xc(i,1)-2*dot_PRODUCT(grad_vsigma%gr(:,i,1),grad%gr(:,i,1))-2*vsigma(i,1)*grad%laplace(i,1)
+            if(rho(i,1) > 1e-8) then
+               v_xc(i,1)=v_xc(i,1)-2*dot_PRODUCT(grad_vsigma%gr(:,i,1),grad%gr(:,i,1))-2*vsigma(i,1)*grad%laplace(i,1)
+            endif
          ENDDO
       ELSE  !two spins
          DO i=1,SIZE(v_xc,1) !loop over points

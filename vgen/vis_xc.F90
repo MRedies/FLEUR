@@ -72,7 +72,7 @@ CONTAINS
       IF (xcpot%needs_grad()) THEN
          SELECT TYPE(xcpot)
          TYPE IS (t_xcpot_libxc)
-            CALL libxc_postprocess_gga_pw(xcpot,stars,cell,grad,v_xc)
+            CALL libxc_postprocess_gga_pw(xcpot,stars,cell,grad,rho,v_xc)
          END SELECT
       ENDIF
       !Put the potentials in rez. space.
