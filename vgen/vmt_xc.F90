@@ -133,8 +133,10 @@
             ENDIF
 
             !Add postprocessing for libxc
-            IF (l_libxc.AND.xcpot%needs_grad()) CALL libxc_postprocess_gga_mt(xcpot,atoms,sphhar,n,v_xc,grad, atom_num=n)
-
+            if (l_libxc.AND.xcpot%needs_grad()) then
+               CALL libxc_postprocess_gga_mt(xcpot,atoms,sphhar,n,grad,&
+                                             ch(:nsp*atoms%jri(n),:),v_xc)
+            endif
             CALL mt_from_grid(atoms,sphhar,n,input%jspins,v_xc,vTot%mt(:,0:,n,:))
             CALL mt_from_grid(atoms,sphhar,n,input%jspins,v_x,vx%mt(:,0:,n,:))
 
@@ -143,7 +145,7 @@
                !
                !           calculate the ex.-cor energy density
                !
-               
+
                IF(perform_MetaGGA .and. xcpot%kinED%set) THEN
                   CALL xcpot%get_exc(input%jspins,ch(:nsp*atoms%jri(n),:),&
                      e_xc(:nsp*atoms%jri(n),1),grad, &
@@ -152,7 +154,7 @@
                   CALL xcpot%get_exc(input%jspins,ch(:nsp*atoms%jri(n),:),&
                      e_xc(:nsp*atoms%jri(n),1),grad, mt_call=.True.)
                ENDIF
-   
+
                !write (*,*) "cut first ", cut_ratio, " number of points"
                !where(cut_mask) e_xc(:,1) = 0.0
 
